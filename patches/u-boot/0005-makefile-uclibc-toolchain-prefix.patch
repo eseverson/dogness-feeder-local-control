@@ -1,0 +1,19 @@
+diff --git a/common/Makefile b/common/Makefile
+index 580bb3a..4cc26e1 100644
+--- a/common/Makefile
++++ b/common/Makefile
+@@ -241,6 +241,14 @@ else
+ endif
+ endif
+ 
++ifeq ($(CROSS_COMPILE),arm-hisiv300-linux-uclibcgnueabi-)
++ifdef CONFIG_HI3518EV200
++	cp cmd_bootss2_v300_hi3518ev200 bootss2.a -rf
++else
++	cp cmd_bootss2_v300 bootss2.a -rf
++endif
++endif
++
+ ifeq ($(CROSS_COMPILE),arm-hisiv400-linux-)
+ ifdef CONFIG_HI3518EV200
+ 	cp cmd_bootss2_v400_hi3518ev200 bootss2.a -rf

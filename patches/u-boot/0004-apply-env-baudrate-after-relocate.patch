@@ -1,0 +1,24 @@
+diff --git a/arch/arm/lib/board.c b/arch/arm/lib/board.c
+index 5d8116b..6af334c 100644
+--- a/arch/arm/lib/board.c
++++ b/arch/arm/lib/board.c
+@@ -451,6 +451,19 @@ void start_armboot (void)
+ 	/* initialize environment */
+ 	env_relocate ();
+ 
++	/* Re-program UART to match env baudrate (serial_init used compile-time default) */
++	{
++		char tmp[64];
++		if (getenv_r("baudrate", tmp, sizeof(tmp)) > 0) {
++			int br = (int)simple_strtoul(tmp, NULL, 10);
++			if (br > 0 && br != gd->baudrate) {
++				gd->baudrate = br;
++				gd->bd->bi_baudrate = br;
++				serial_setbrg();
++			}
++		}
++	}
++
+ 	if (getenv_yesno("restore")) {
+ 	puts("\nENV restore flag is set. ");
+ 	set_default_env();

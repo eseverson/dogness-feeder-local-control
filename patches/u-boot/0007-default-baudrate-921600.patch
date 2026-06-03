@@ -1,0 +1,18 @@
+Default U-Boot console baud to 921600 instead of 115200.
+
+We normally connect at 921600. Without this, U-Boot starts at 115200
+until env_relocate runs (handled by patch 0004), giving a brief
+garbled window every boot. Setting the compile-time default to
+921600 makes the env-baudrate switchover a no-op for our setup.
+
+--- a/include/configs/hi3518ev200.h
++++ b/include/configs/hi3518ev200.h
+@@ -148,7 +148,7 @@
+ #define CONFIG_SERVERIP 192.168.1.2     /* current IP of tftp server ip */
+ #define CONFIG_ETHADDR  00:00:23:34:45:66
+ #define CONFIG_BOOTFILE "uImage"        /* file to load */
+-#define CONFIG_BAUDRATE         115200
++#define CONFIG_BAUDRATE         921600
+ /*-----------------------------------------------------------------------
+  * for bootm linux
+  * used in file  board/hi3518ev200/board.c

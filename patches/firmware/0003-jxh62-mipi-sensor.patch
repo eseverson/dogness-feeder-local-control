@@ -1,0 +1,412 @@
+diff --git a/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon b/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon
+index ec85b194..87be30c2 100755
+--- a/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon
++++ b/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon
+@@ -89,7 +89,21 @@ insert_isp() {
+ 
+ insert_sns() {
+         case $SENSOR in
+-        9m034 | jxf23 | ov2718 | ov9732 | ov9750 | ov9752 | jxh62 | sc1235 | sc2235 | ov9712 | ov2710 | gc2023)
++        jxh62)
++                devmem 0x200f0040 32 0x2 # I2C0_SCL
++                devmem 0x200f0044 32 0x2 # I2C0_SDA
++
++                devmem 0x200f007c 32 0x1 # VI_DATA13
++                devmem 0x200f0080 32 0x1 # VI_DATA10
++                devmem 0x200f0084 32 0x1 # VI_DATA12
++                devmem 0x200f0088 32 0x1 # VI_DATA11
++                devmem 0x200f008c 32 0x2 # VI_VS
++                devmem 0x200f0090 32 0x2 # VI_HS
++                devmem 0x200f0094 32 0x1 # VI_DATA9
++
++                devmem 0x2003002c 32 0xc4003 # Sensor unreset, clk 24MHz + clk reverse, VI 99MHz
++                ;;
++        9m034 | jxf23 | ov2718 | ov9732 | ov9750 | ov9752 | sc1235 | sc2235 | ov9712 | ov2710 | gc2023)
+                 devmem 0x200f0040 32 0x2 # I2C0_SCL
+                 devmem 0x200f0044 32 0x2 # I2C0_SDA
+ 
+diff --git a/general/package/hisilicon-osdrv-hi3516cv200/files/sensor/config/jxh62_i2c_mipi_720p.ini b/general/package/hisilicon-osdrv-hi3516cv200/files/sensor/config/jxh62_i2c_mipi_720p.ini
+new file mode 100644
+index 00000000..c9411be5
+--- /dev/null
++++ b/general/package/hisilicon-osdrv-hi3516cv200/files/sensor/config/jxh62_i2c_mipi_720p.ini
+@@ -0,0 +1,192 @@
++[sensor]
++Sensor_type   =jxh62                   ;sensor name
++Mode          =0                        ;WDR_MODE_NONE = 0
++DllFile   =/usr/lib/sensors/libsns_jxh62.so     ;sensor lib path
++
++
++[mode]
++input_mode =0                           ;INPUT_MODE_MIPI = 0
++                                        ;INPUT_MODE_SUBLVDS = 1
++                                        ;INPUT_MODE_LVDS = 2
++                                        ;INPUT_MODE_HISPI = 3
++                                        ;INPUT_MODE_CMOS = 4
++
++dev_attr = 0                         	;mipi_dev_attr_t = 0
++                                        ;lvds_dev_attr_t = 1
++                                        ;NULL =2
++
++[mipi]
++;----------only for mipi_dev---------
++data_type = 2                       	;raw data type: 8/10/12/14 bit
++                                        ;RAW_DATA_8BIT = 1
++                                        ;RAW_DATA_10BIT = 2
++                                        ;RAW_DATA_12BIT = 3
++                                        ;RAW_DATA_14BIT = 4
++lane_id = 0|-1|-1|-1|-1|-1|-1|-1|      ;lane_id: 1 lane (lane 0 only)
++
++[lvds]
++;----------only for lvds_dev---------
++img_size_w = -1
++img_size_h = -1
++wdr_mode = -1
++sync_mode = -1
++raw_data_type = -1
++data_endian = -1
++sync_code_endian =-1
++lane_id = -1|-1|-1|-1|-1|-1|-1|-1|
++lvds_lane_num = -1
++wdr_vc_num = -1
++sync_code_num = -1
++sync_code_0 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++sync_code_1 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++sync_code_2 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++sync_code_3 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++sync_code_4 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++sync_code_5 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++sync_code_6 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++sync_code_7 = -1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|-1|
++
++[isp_image]
++Isp_x      =0
++Isp_y      =0
++Isp_W      =1280
++Isp_H      =720
++Isp_FrameRate=30
++Isp_Bayer  =3   ;BAYER_RGGB=0, BAYER_GRBG=1, BAYER_GBRG=2, BAYER_BGGR=3
++
++
++[vi_dev]
++Input_mod =5    ;VI_INPUT_MODE_BT656 = 0
++                ;VI_INPUT_MODE_BT601,
++                ;VI_INPUT_MODE_DIGITAL_CAMERA,
++                ;VI_INPUT_MODE_BT1120_STANDARD,
++                ;VI_INPUT_MODE_BT1120_INTERLEAVED,
++                ;VI_INPUT_MODE_MIPI,
++                ;VI_INPUT_MODE_LVDS,
++                ;VI_INPUT_MODE_HISPI
++Work_mod =0     ;VI_WORK_MODE_1Multiplex = 0
++Combine_mode =0
++Comp_mode    =0
++Clock_edge   =0
++Mask_num     =2
++Mask_0       =0xFFF00000
++Mask_1       =0x0
++Scan_mode    =1
++Data_seq     =2
++Vsync   =1
++VsyncNeg=1
++Hsync  =0
++HsyncNeg =0
++VsyncValid =1
++VsyncValidNeg =0
++Timingblank_HsyncHfb =0
++Timingblank_HsyncAct =1280
++Timingblank_HsyncHbb =0
++Timingblank_VsyncVfb =0
++Timingblank_VsyncVact =720
++Timingblank_VsyncVbb=0
++Timingblank_VsyncVbfb =0
++Timingblank_VsyncVbact=0
++Timingblank_VsyncVbbb =0
++
++;----- only for bt656 ----------
++FixCode   =0
++FieldPolar=0
++DataPath  =1    ;VI_PATH_ISP = 1
++InputDataType=1 ;VI_DATA_TYPE_RGB = 1
++DataRev      =FALSE
++DevRect_x=0
++DevRect_y=0
++DevRect_w=1280
++DevRect_h=720
++
++[vi_chn]
++CapRect_X    =0
++CapRect_Y    =0
++CapRect_Width=1280
++CapRect_Height=720
++DestSize_Width=1280
++DestSize_Height=720
++CapSel       =2
++PixFormat    =23;PIXEL_FORMAT_YUV_SEMIPLANAR_420 = 23
++CompressMode =0
++
++SrcFrameRate=30
++FrameRate   =30
++
++[vpss_group]
++Vpss_DciEn  =FALSE
++Vpss_IeEn   =FALSE
++Vpss_NrEn   =TRUE
++Vpss_HistEn =FALSE
++Vpss_DieMode=1
++
++[vpss_corp]
++Crop_enable =FALSE
++Coordinate  =1
++Crop_X      =128
++Crop_Y      =128
++Crop_W      =1158
++Crop_H      =562
++
++[vpss_chn]
++Vpss_W    =1280
++Vpss_H    =720
++CompressMode=0
++Mirror     =FALSE
++Flip       =FALSE
++
++[vb_conf]
++VbCnt=5
++vbTimes=15
++
++[venc_comm]
++venc_chn =1
++BufCnt = 1
++
++[venc_0]
++PicWidth  =1280
++PicHeight =720
++Profile   =2
++RcMode   =VENC_RC_MODE_H264CBR
++Gop    =50
++StatTime =2
++ViFrmRate  =30
++TargetFrmRate=30
++BitRate=2048
++FluctuateLevel=1
++MaxBitRate =10000
++MaxQp=32
++MinQp=24
++IQp=45
++PQp=40
++
++[venc_1]
++PicWidth  =1280
++PicHeight =720
++Profile   =2
++RcMode   =VENC_RC_MODE_H264CBR
++Gop    =50
++StatTime =2
++ViFrmRate  =30
++TargetFrmRate=15
++BitRate=2048
++FluctuateLevel=1
++MaxBitRate =10000
++MaxQp=32
++MinQp=24
++IQp=40
++PQp=45
++
++[bind]
++ViDev   =0
++ViChn   =0
++VpssGrp =0
++VpssChn = 0
++VoDev   =0
++VoChn   =0
++ViSnapChn =0
++VpssSnapGrp=0
++VpssSnapChn=1
++VencSnapGrp=1
++VencSnapChn=3
+diff --git a/general/package/hisilicon-osdrv-hi3516cv200/files/sensor/libsns_jxh62.so b/general/package/hisilicon-osdrv-hi3516cv200/files/sensor/libsns_jxh62.so
+index a678f39fbc37a27eb1369a459fe9491622ebcd64..cf2c986a761d1f04061c0bf1e089b1c02d8644b0 100644
+GIT binary patch
+delta 160
+zcmWm5zY2k26bIn*PBP$pOa_1IGooZxWMDG8076z4lQNlKi|toRDT8uJC(~KD0O!c|
+zEYI-}j)(Agb1ut}0zp3J+K69Hb9;u=3Gy=6Ol&2iaEjX`4a0a&);(fKg&=ox{kuw#
+zo4Jk|vLndVT=NX+5aeR66NYpN0&{J~K`{;eI4?fS|GOl}!dy2DSrKGruC-^UG;RL?
+DL*P$T
+
+delta 160
+zcmV~$A!~wB6b9gP!LWhi`CKw6!k3+hS;mrO&0;htn^+94ED0v_O(tI$3<QJVPkLE8
+zAlnb{9G_>mO}lM6|7q<(!McF|9@fb>Eo)N+I|BZC*kkS%qjb%mMVVH4Uo3~AU`xQ0
+zhaD7b3wZRfje=hS{&-kb!M=ds9`>f-KtOm{FTXa*G|uzJrCCw%L%??rTPwH_aOPnz
+Jm;Te_`3@elQN#cM
+
+diff --git a/general/package/hisilicon-osdrv-hi3516cv200/files/sensor/libsns_jxh62.so.bak_dvp b/general/package/hisilicon-osdrv-hi3516cv200/files/sensor/libsns_jxh62.so.bak_dvp
+new file mode 100644
+index 0000000000000000000000000000000000000000..a678f39fbc37a27eb1369a459fe9491622ebcd64
+GIT binary patch
+literal 16777
+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
+
+literal 0
+HcmV?d00001
+

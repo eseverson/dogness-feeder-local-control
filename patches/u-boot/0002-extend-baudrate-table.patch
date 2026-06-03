@@ -1,0 +1,13 @@
+diff --git a/include/configs/hi3518ev200.h b/include/configs/hi3518ev200.h
+index f0eb04b..f613c0b 100644
+--- a/include/configs/hi3518ev200.h
++++ b/include/configs/hi3518ev200.h
+@@ -165,7 +165,7 @@
+ #define CONFIG_TFTP_TSIZE
+ 
+ /* do_printenv  do_setenv common/cmd_nvedit.c */
+-#define CONFIG_SYS_BAUDRATE_TABLE { 9600, 19200, 38400, 57600, 115200 }
++#define CONFIG_SYS_BAUDRATE_TABLE { 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 }
+ #define CONFIG_SYS_MAXARGS 32          /* max number of command args   */
+ 
+ 

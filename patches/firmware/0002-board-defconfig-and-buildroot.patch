@@ -1,0 +1,270 @@
+diff --git a/.gitignore b/.gitignore
+index 945e094f..a763dc42 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,4 +1,5 @@
+ buildroot-*/
+ output/
+ buildroot-*
+-.DS_Store
+\ No newline at end of file
++.DS_Store
++output*
+diff --git a/Makefile b/Makefile
+index bb73e607..7551b83f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -25,14 +25,14 @@ endif
+ all: build repack timer
+ 
+ build: defconfig
+-	@$(BR_MAKE) all -j$(shell nproc)
++	@$(BR_MAKE) all -j$(or $(JOBS),$(shell nproc))
+ 
+ br-%: defconfig
+-	@$(BR_MAKE) $(subst br-,,$@) -j$(shell nproc)
++	@$(BR_MAKE) $(subst br-,,$@) -j$(or $(JOBS),$(shell nproc))
+ 
+ defconfig: prepare
+ 	@echo --- $(or $(CONFIG),$(error variable BOARD not found))
+-	@cat $(CONFIG) $(PWD)/general/openipc.fragment > $(BR_CONF)
++	@cat $(PWD)/general/openipc.fragment $(CONFIG) > $(BR_CONF)
+ 	@grep -s '^BR2_GLOBAL_PATCH_DIR=' $(CONFIG) >> $(BR_CONF) || true
+ 	@$(BR_MAKE) BR2_DEFCONFIG=$(BR_CONF) defconfig
+ 
+@@ -81,7 +81,7 @@ ifeq ($(BR2_TOOLCHAIN_EXTERNAL),y)
+ 	@$(MAKE) -f $(PWD)/general/toolchain.mk BR_CONF=$(BR_CONF) CONFIG=$(PWD)/$(CONFIG)
+ 	@$(BR_MAKE) BR2_DEFCONFIG=$(BR_CONF) defconfig
+ endif
+-	@$(BR_MAKE) sdk -j$(shell nproc)
++	@$(BR_MAKE) sdk -j$(or $(JOBS),$(shell nproc))
+ 	@$(call BUNDLE_SDK)
+ 
+ repack:
+diff --git a/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config b/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config
+index 124c922b..debded5c 100644
+--- a/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config
++++ b/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config
+@@ -761,7 +761,7 @@ CONFIG_CFG80211=m
+ CONFIG_CFG80211_DEFAULT_PS=y
+ # CONFIG_CFG80211_INTERNAL_REGDB is not set
+ CONFIG_CFG80211_CRDA_SUPPORT=y
+-# CONFIG_CFG80211_WEXT is not set
++CONFIG_CFG80211_WEXT=y
+ # CONFIG_LIB80211 is not set
+ CONFIG_MAC80211=m
+ CONFIG_MAC80211_HAS_RC=y
+@@ -1938,7 +1938,7 @@ CONFIG_STAGING=y
+ # CONFIG_COMEDI is not set
+ # CONFIG_RTLLIB is not set
+ # CONFIG_R8712U is not set
+-CONFIG_R8188EU=m
++#CONFIG_R8188EU=m
+ CONFIG_88EU_AP_MODE=y
+ # CONFIG_VT6656 is not set
+ 
+diff --git a/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig b/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig
+index 6c24fc42..5bb12229 100644
+--- a/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig
++++ b/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig
+@@ -25,8 +25,8 @@ BR2_PACKAGE_BUSYBOX_CONFIG="$(BR2_EXTERNAL)/package/busybox/busybox.config"
+ BR2_PACKAGE_UBOOT_TOOLS=y
+ BR2_PACKAGE_ZLIB=y
+ # BR2_PACKAGE_IFUPDOWN_SCRIPTS is not set
+-BR2_PACKAGE_WIREGUARD_LINUX_COMPAT=y
+-BR2_PACKAGE_WIREGUARD_TOOLS=y
++# BR2_PACKAGE_WIREGUARD_LINUX_COMPAT=y
++# BR2_PACKAGE_WIREGUARD_TOOLS=y
+ BR2_PACKAGE_WIRELESS_TOOLS=y
+ BR2_PACKAGE_WPA_SUPPLICANT=y
+ BR2_PACKAGE_WPA_SUPPLICANT_CLI=y
+@@ -35,6 +35,13 @@ BR2_TARGET_ROOTFS_CPIO=y
+ BR2_TARGET_ROOTFS_SQUASHFS=y
+ BR2_TARGET_ROOTFS_SQUASHFS4_XZ=y
+ 
++# Timezone — compile only the North America source file (contains
++# America/Los_Angeles and ~30 other NA zones, ~50KB total). LOCALTIME
++# determines the /etc/localtime symlink; rootfs comes up in PT.
++BR2_TARGET_TZ_INFO=y
++BR2_TARGET_TZ_ZONELIST="northamerica"
++BR2_TARGET_LOCALTIME="America/Los_Angeles"
++
+ # OpenIPC
+ BR2_OPENIPC_SOC_VENDOR="hisilicon"
+ BR2_OPENIPC_SOC_MODEL="hi3518ev200"
+@@ -44,6 +51,7 @@ BR2_OPENIPC_FLASH_SIZE="8"
+ 
+ # Packages
+ BR2_PACKAGE_DROPBEAR_OPENIPC=y
++BR2_PACKAGE_GESFTPSERVER=y
+ BR2_PACKAGE_HISILICON_OSDRV_HI3516CV200=y
+ BR2_PACKAGE_IPCTOOL=y
+ BR2_PACKAGE_JSONFILTER=y
+@@ -55,13 +63,19 @@ BR2_PACKAGE_LIBCURL_OPENIPC_CURL=y
+ BR2_PACKAGE_LIBEVENT_OPENIPC=y
+ BR2_PACKAGE_LIBOGG_OPENIPC=y
+ BR2_PACKAGE_LINUX_FIRMWARE_OPENIPC=y
+-BR2_PACKAGE_LINUX_FIRMWARE_OPENIPC_MEDIATEK_MT7601U=y
++# BR2_PACKAGE_LINUX_FIRMWARE_OPENIPC_MEDIATEK_MT7601U=y
+ BR2_PACKAGE_LINUX_FIRMWARE_OPENIPC_RTL_8188EU=y
+-BR2_PACKAGE_MAJESTIC_FONTS=y
++BR2_PACKAGE_RTL8188FU_OPENIPC=y
++# BR2_PACKAGE_MAJESTIC_FONTS=y
+ BR2_PACKAGE_MAJESTIC_WEBUI=y
+ BR2_PACKAGE_MAJESTIC=y
++#BR2_PACKAGE_MATTER=y
+ BR2_PACKAGE_MBEDTLS_OPENIPC=y
+-BR2_PACKAGE_MOTORS=y
++# BR2_PACKAGE_MOTORS=y
+ BR2_PACKAGE_OPUS_OPENIPC=y
+ BR2_PACKAGE_VTUND_OPENIPC=y
+ BR2_PACKAGE_YAML_CLI=y
++BR2_PACKAGE_MOSQUITTO=y
++BR2_PACKAGE_CATD=y
++# BR2_PACKAGE_GO2RTC=y
++# BR2_TARGET_ROOTFS_INITRAMFS=y
+\ No newline at end of file
+diff --git a/br-ext-chip-hisilicon/configs/hi3518ev200_recovery_defconfig b/br-ext-chip-hisilicon/configs/hi3518ev200_recovery_defconfig
+new file mode 100644
+index 00000000..30d4b675
+--- /dev/null
++++ b/br-ext-chip-hisilicon/configs/hi3518ev200_recovery_defconfig
+@@ -0,0 +1,75 @@
++# Recovery / failsafe rootfs for hi3518ev200 (32MB NOR).
++#
++# Goals:
++#   - Bake into the kernel uImage as initramfs (single 8MB blob).
++#   - Bring up wifi (RTL8188FU on this board) and dropbear so a deploy
++#     script can SSH in and re-flash main partitions via flashcp.
++#   - Strip everything not needed for that: no majestic, no MQTT, no
++#     wireguard, no streaming.
++#
++# Built via: make BOARD=hi3518ev200_recovery TARGET=...
++# Output:    output-*/images/uImage.hi3518ev200 (kernel + embedded initramfs)
++
++# Architecture
++BR2_arm=y
++
++# Toolchain
++BR2_TOOLCHAIN_EXTERNAL=y
++BR2_TOOLCHAIN_EXTERNAL_CUSTOM=y
++BR2_TOOLCHAIN_EXTERNAL_DOWNLOAD=y
++BR2_TOOLCHAIN_EXTERNAL_URL="https://github.com/openipc/firmware/releases/download/$(OPENIPC_TOOLCHAIN).tgz"
++BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX="arm-openipc-linux-musleabi"
++BR2_TOOLCHAIN_EXTERNAL_HEADERS_4_9=y
++BR2_TOOLCHAIN_EXTERNAL_CUSTOM_MUSL=y
++BR2_TOOLCHAIN_EXTERNAL_CXX=y
++
++# Kernel — same generic config as main, so the wifi driver ABI matches.
++BR2_LINUX_KERNEL=y
++BR2_LINUX_KERNEL_CUSTOM_TARBALL=y
++BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION="https://github.com/openipc/linux/archive/$(OPENIPC_KERNEL).tar.gz"
++BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
++BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(EXTERNAL_VENDOR)/board/$(OPENIPC_SOC_FAMILY)/hi3518ev200.generic.config"
++BR2_LINUX_KERNEL_UIMAGE=y
++BR2_LINUX_KERNEL_XZ=y
++
++# Filesystem — INITRAMFS only (baked into the kernel image).
++BR2_PACKAGE_BUSYBOX_CONFIG="$(BR2_EXTERNAL)/package/busybox/busybox.config"
++BR2_PACKAGE_UBOOT_TOOLS=y
++BR2_PACKAGE_WIRELESS_TOOLS=y
++BR2_PACKAGE_WPA_SUPPLICANT=y
++BR2_PACKAGE_WPA_SUPPLICANT_CLI=y
++BR2_PACKAGE_WPA_SUPPLICANT_PASSPHRASE=y
++BR2_TARGET_ROOTFS_INITRAMFS=y
++# (squashfs/ubi/cpio intentionally not set — we only want the initramfs uImage)
++
++# OpenIPC variant identity
++BR2_OPENIPC_SOC_VENDOR="hisilicon"
++BR2_OPENIPC_SOC_MODEL="hi3518ev200"
++BR2_OPENIPC_SOC_FAMILY="hi3516cv200"
++BR2_OPENIPC_VARIANT="recovery"
++BR2_OPENIPC_FLASH_SIZE="32"
++
++# Override the fragment's hostname so mDNS/avahi distinguishes recovery
++# from main on the same network.
++BR2_TARGET_GENERIC_HOSTNAME="openipc-$(OPENIPC_SOC_MODEL)-recovery"
++
++# Layer the recovery-specific overlay on top of the shared main overlay.
++# Later paths win on file conflicts, so recovery-overlay is the override layer.
++BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL)/overlay $(BR2_EXTERNAL)/recovery-overlay"
++
++# Packages — bare minimum for "boot, wifi, sshd, flashcp"
++BR2_PACKAGE_DROPBEAR_OPENIPC=y
++BR2_PACKAGE_HISILICON_OSDRV_HI3516CV200=y
++BR2_PACKAGE_LIBCURL_OPENIPC=y
++BR2_PACKAGE_LIBCURL_OPENIPC_CURL=y
++# BR2_PACKAGE_LIBCURL_OPENIPC_PROXY_SUPPORT is not set
++# BR2_PACKAGE_LIBCURL_OPENIPC_COOKIES_SUPPORT is not set
++# BR2_PACKAGE_LIBCURL_OPENIPC_EXTRA_PROTOCOLS_FEATURES is not set
++BR2_PACKAGE_LINUX_FIRMWARE_OPENIPC=y
++BR2_PACKAGE_LINUX_FIRMWARE_OPENIPC_RTL_8188EU=y
++BR2_PACKAGE_RTL8188FU_OPENIPC=y
++
++# Timezone (small, useful for logs)
++BR2_TARGET_TZ_INFO=y
++BR2_TARGET_TZ_ZONELIST="northamerica"
++BR2_TARGET_LOCALTIME="America/Los_Angeles"
+diff --git a/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig b/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig
+index c4b15c70..b178d4d7 100644
+--- a/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig
++++ b/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig
+@@ -42,17 +42,25 @@ BR2_TARGET_ROOTFS_UBI_USE_CUSTOM_CONFIG=y
+ BR2_TARGET_ROOTFS_UBI_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL)/scripts/ubifs/ubinize.cfg"
+ BR2_TARGET_ROOTFS_UBIFS_LEBSIZE=0x1f000
+ 
++# Timezone — compile only the North America source file (contains
++# America/Los_Angeles and ~30 other NA zones, ~50KB total). LOCALTIME
++# determines the /etc/localtime symlink; rootfs comes up in PT.
++BR2_TARGET_TZ_INFO=y
++BR2_TARGET_TZ_ZONELIST="northamerica"
++BR2_TARGET_LOCALTIME="America/Los_Angeles"
++
+ # OpenIPC
+ BR2_OPENIPC_SOC_VENDOR="hisilicon"
+ BR2_OPENIPC_SOC_MODEL="hi3518ev200"
+ BR2_OPENIPC_SOC_FAMILY="hi3516cv200"
+ BR2_OPENIPC_VARIANT="ultimate"
+-BR2_OPENIPC_FLASH_SIZE="16"
++BR2_OPENIPC_FLASH_SIZE="32"
+ BR2_OPENIPC_MAJESTIC="ultimate"
+ 
+ # Packages
+ BR2_PACKAGE_DIVINUS=y
+ BR2_PACKAGE_DROPBEAR_OPENIPC=y
++BR2_PACKAGE_GESFTPSERVER=y
+ BR2_PACKAGE_HISILICON_OSDRV_HI3516CV200=y
+ BR2_PACKAGE_IPCTOOL=y
+ BR2_PACKAGE_JSONFILTER=y
+@@ -79,3 +87,5 @@ BR2_PACKAGE_UACME_OPENIPC=y
+ BR2_PACKAGE_VTUND_OPENIPC=y
+ BR2_PACKAGE_YAML_CLI=y
+ BR2_PACKAGE_ZEROTIER_ONE=y
++BR2_PACKAGE_CATD=y
++# BR2_PACKAGE_GO2RTC=y
+\ No newline at end of file
+diff --git a/general/external.mk b/general/external.mk
+index ff116940..e79c1721 100644
+--- a/general/external.mk
++++ b/general/external.mk
+@@ -4,7 +4,7 @@ export OPENIPC_SOC_FAMILY := $(call qstrip,$(BR2_OPENIPC_SOC_FAMILY))
+ export OPENIPC_SNS_MODEL := $(call qstrip,$(BR2_OPENIPC_SNS_MODEL))
+ export OPENIPC_VARIANT := $(call qstrip,$(BR2_OPENIPC_VARIANT))
+ export OPENIPC_MAJESTIC := $(call qstrip,$(BR2_OPENIPC_MAJESTIC))
+-export WGET := wget --show-progress --passive-ftp -nd -t5 -T10
++export WGET := wget --show-progress -nd -t5 -T10
+ 
+ EXTERNAL_VENDOR := $(BR2_EXTERNAL)/../br-ext-chip-$(OPENIPC_SOC_VENDOR)
+ OPENIPC_KERNEL := $(OPENIPC_SOC_VENDOR)-$(OPENIPC_SOC_FAMILY)
+diff --git a/general/scripts/excludes/hi3518ev200_recovery.list b/general/scripts/excludes/hi3518ev200_recovery.list
+new file mode 100644
+index 00000000..f4c83744
+--- /dev/null
++++ b/general/scripts/excludes/hi3518ev200_recovery.list
+@@ -0,0 +1,6 @@
++/etc/init.d/S50mosquitto
++/etc/init.d/S95majestic
++/etc/init.d/S98wireguard
++/etc/init.d/S70vendor
++/etc/majestic.yaml
++/etc/wireguard.conf

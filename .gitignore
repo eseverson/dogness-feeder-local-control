@@ -1,0 +1,10 @@
+# build outputs
+*.bin
+*.img
+output/
+
+# editor / OS cruft
+.DS_Store
+*.swp
+*~
+__pycache__/

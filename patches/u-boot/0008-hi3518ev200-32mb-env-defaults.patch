@@ -1,0 +1,93 @@
+hi3518ev200: bake 32MB BY25Q256 layout + bootcount failover into env defaults.
+
+Override CONFIG_BOOTARGS / CONFIG_BOOTCOMMAND / CONFIG_EXTRA_ENV_SETTINGS
+after hi-common.h's defaults so a freshly flashed device with empty env
+boots correctly without needing an interactive setenv/saveenv. Also adds
+CONFIG_CMD_SETEXPR for the bootcount arithmetic.
+
+Layout matches build-full-image.sh FLASH_SIZE=32mb:
+  - mtdparts: hi_sfc:320k(boot),64k(bootcount),3072k(kernel),
+              8192k(rootfs),8192k(recovery),-(rootfs_data)
+  - bootcmdmain reads kernel from 0x60000 (not 0x50000 as in 8M layout)
+  - bootcmdrec reads recovery from 0xB60000 with mem=64M root=/dev/ram
+
+Boot scripts use the setargs indirection (setenv setargs setenv bootargs
+${bootargsmain}; run setargs) so nested ${osmem}/${mtdparts}/${extras}
+references inside ${bootargsmain} get a second expansion pass. Without
+this, kernel receives literal "${osmem}" in cmdline → silent panic.
+
+bootcount failover (env-script only — no C-side bootcount driver):
+  - boot_with_count is the entry point (CONFIG_BOOTCOMMAND).
+  - On each boot, if bootcount > bootlimit, run recovery (no saveenv).
+  - Otherwise increment bootcount, saveenv, run main.
+  - Userspace S99healthy in main rootfs resets bootcount to 0 once
+    the system reaches a healthy state. Recovery does not auto-reset;
+    use the `boot-main` helper script in recovery rootfs.
+
+diff --git a/include/configs/hi3518ev200.h b/include/configs/hi3518ev200.h
+index 0b61687..1a988a9 100644
+--- a/include/configs/hi3518ev200.h
++++ b/include/configs/hi3518ev200.h
+@@ -350,5 +350,62 @@
+ 
+ #include <configs/hi-common.h>
+ 
++/* setexpr is needed for the boot_with_count env script (arithmetic).
++   echo is used for the diagnostic "bootcount=N/M - main" messages. */
++#define CONFIG_CMD_SETEXPR
++#define CONFIG_CMD_ECHO
++
++/*
++ * Dogness 32MB BY25Q256 layout overrides. Applied after hi-common.h so we
++ * win the redefinition. Layout matches build-full-image.sh FLASH_SIZE=32mb:
++ *
++ *   0x000000  boot       320K  (u-boot + env at 0x40000-0x50000)
++ *   0x050000  bootcount  64K   (reserved; not used by current bootcount logic)
++ *   0x060000  kernel     3M    (main uImage)
++ *   0x360000  rootfs     8M    (main squashfs)
++ *   0xB60000  recovery   8M    (recovery uImage with embedded initramfs)
++ *   0x1360000 rootfs_data ~12.6M (JFFS2 overlay, mounted on first main boot)
++ *
++ * Recovery boot needs mem=64M (full RAM) since it doesn't reserve mmz for
++ * camera buffers, and root=/dev/ram so OpenIPC's overlay-init wrapper
++ * skips the squashfs overlay logic.
++ *
++ * The bootcmdmain / bootcmdrec scripts use the `setargs` indirection to
++ * force a second pass of variable expansion. Without it, the inner
++ * ${osmem} / ${mtdparts} / ${extras} references inside ${bootargsmain}
++ * don't get resolved and the kernel receives literal "${osmem}" in its
++ * cmdline (silent panic, no console because mem= unparseable).
++ *
++ * boot_with_count handles automatic failover: it increments bootcount in
++ * env on every boot and falls back to bootcmdrec once bootcount exceeds
++ * bootlimit. A healthy-boot daemon in main rootfs (S99healthy) resets
++ * bootcount to 0 once the system has booted far enough to be considered
++ * stable; recovery doesn't auto-reset (use the boot-main helper).
++ */
++#undef CONFIG_BOOTARGS
++#define CONFIG_BOOTARGS \
++    "mem=${osmem} console=ttyAMA0,921600 panic=20 root=/dev/mtdblock3 " \
++    "rootfstype=squashfs init=/init mtdparts=${mtdparts} ${extras}"
++
++#undef CONFIG_BOOTCOMMAND
++#define CONFIG_BOOTCOMMAND "run boot_with_count"
++
++#undef CONFIG_EXTRA_ENV_SETTINGS
++#define CONFIG_EXTRA_ENV_SETTINGS \
++    "baseaddr=0x82000000\0" \
++    "osmem=32M\0" \
++    "soc=" CONFIG_PRODUCTNAME "\0" \
++    "mtdparts=hi_sfc:320k(boot),64k(bootcount),3072k(kernel),8192k(rootfs),8192k(recovery),-(rootfs_data)\0" \
++    "bootargsmain=mem=${osmem} console=ttyAMA0,921600 panic=20 root=/dev/mtdblock3 rootfstype=squashfs init=/init mtdparts=${mtdparts} ${extras}\0" \
++    "bootargsrec=mem=64M console=ttyAMA0,921600 panic=10 root=/dev/ram rdinit=/init mtdparts=${mtdparts} ${extras}\0" \
++    "bootcmdmain=setenv setargs setenv bootargs ${bootargsmain}; run setargs; sf probe 0; sf read ${baseaddr} 0x60000 0x300000; bootm ${baseaddr}\0" \
++    "bootcmdrec=setenv setargs setenv bootargs ${bootargsrec}; run setargs; sf probe 0; sf read ${baseaddr} 0xB60000 0x800000; bootm ${baseaddr}\0" \
++    "bootcount=0\0" \
++    "bootlimit=3\0" \
++    "boot_with_count=if test ${bootcount} -gt ${bootlimit}; then echo bootcount=${bootcount}/${bootlimit} - recovery; run bootcmdrec; else setexpr bootcount ${bootcount} + 1; saveenv; echo bootcount=${bootcount}/${bootlimit} - main; run bootcmdmain; fi\0" \
++    "altbootcmd=run bootcmdrec\0" \
++    "bootrecovery=setenv bootcmd 'run bootcmdrec'; saveenv; reset\0" \
++    "bootmain=setenv bootcmd 'run boot_with_count'; saveenv; reset\0"
++
+ #endif	/* __CONFIG_H */
+ 

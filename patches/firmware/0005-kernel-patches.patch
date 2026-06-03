@@ -1,0 +1,70 @@
+diff --git a/general/package/all-patches/linux/0020-disable-femac-ethernet-hi3518ev20x.patch b/general/package/all-patches/linux/0020-disable-femac-ethernet-hi3518ev20x.patch
+new file mode 100644
+index 00000000..5df85e7d
+--- /dev/null
++++ b/general/package/all-patches/linux/0020-disable-femac-ethernet-hi3518ev20x.patch
+@@ -0,0 +1,10 @@
++--- a/arch/arm/boot/dts/hi3518ev20x-demb.dts
+++++ b/arch/arm/boot/dts/hi3518ev20x-demb.dts
++@@ -95,6 +95,7 @@
++ 	mac-address = [00 00 00 00 00 00];
++ 	phy-mode = "rmii";
++ 	phy-handle = <&phy0>;
+++	status = "disabled";
++ };
++
++ &hidmac {
+diff --git a/general/package/all-patches/linux/0021-enable-uart1-uart2-hi3518ev20x.patch b/general/package/all-patches/linux/0021-enable-uart1-uart2-hi3518ev20x.patch
+new file mode 100644
+index 00000000..9eb51ed9
+--- /dev/null
++++ b/general/package/all-patches/linux/0021-enable-uart1-uart2-hi3518ev20x.patch
+@@ -0,0 +1,17 @@
++--- a/arch/arm/boot/dts/hi3518ev20x-demb.dts
+++++ b/arch/arm/boot/dts/hi3518ev20x-demb.dts
++@@ -98,6 +98,14 @@
++ 	status = "disabled";
++ };
++
+++&uart1 {
+++	status = "okay";
+++};
+++
+++&uart2 {
+++	status = "okay";
+++};
+++
++ &hidmac {
++ 	status = "okay";
++ };
+diff --git a/general/package/all-patches/linux/0022-add-by25q256fs-spi-nor-id.patch b/general/package/all-patches/linux/0022-add-by25q256fs-spi-nor-id.patch
+new file mode 100644
+index 00000000..1efb3840
+--- /dev/null
++++ b/general/package/all-patches/linux/0022-add-by25q256fs-spi-nor-id.patch
+@@ -0,0 +1,25 @@
++Add Boya BY25Q256FS to the SPI NOR ID table.
++
++JEDEC ID 0x68/0x49/0x19. The chip is a 256Mb (32MB) W25Q256-class part
++that supports native 4-byte addressing opcodes (READ4 0x13, PP4 0x12,
++SE4 0x21, BE4 0xDC), so SPI_NOR_4B_OPCODES is set.
++
++Required for cameras shipped with (or upgraded to) BY25Q256FSSIG NOR.
++Without this entry hisi-sfc fails to register the device and Linux
++panics with "VFS: Cannot open root device" since mtdblockN never appear.
++
++--- a/drivers/mtd/spi-nor/spi-nor.c
+++++ b/drivers/mtd/spi-nor/spi-nor.c
++@@ -1374,7 +1374,12 @@ static const struct flash_info spi_nor_ids[] = {
++ 	{ "w25q256jw", INFO(0xef8019, 0, 64 * 1024, 512,
++ 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
++ 			SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB | SPI_NOR_4B_OPCODES),
++ 			PARAMS(winbond) },
+++
+++	/* Boya BY25Q256FS, JEDEC 0x68 0x49 0x19, W25Q256-class, native 4-byte opcodes */
+++	{ "by25q256fs", INFO(0x684919, 0, 64 * 1024, 512,
+++			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
+++			SPI_NOR_4B_OPCODES) },
++ 
++ 	/* Catalyst / On Semiconductor -- non-JEDEC */
++ 	{ "cat25c11", CAT25_INFO(16, 8, 16, 1, SPI_NOR_NO_ERASE

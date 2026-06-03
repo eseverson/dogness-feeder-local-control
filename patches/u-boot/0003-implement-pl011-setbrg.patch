@@ -1,0 +1,29 @@
+diff --git a/drivers/serial/serial_pl01x.c b/drivers/serial/serial_pl01x.c
+index 0f91407..c301838 100644
+--- a/drivers/serial/serial_pl01x.c
++++ b/drivers/serial/serial_pl01x.c
+@@ -198,6 +198,24 @@ int serial_tstc (void)
+ 
+ void serial_setbrg (void)
+ {
++#ifdef CONFIG_PL011_SERIAL
++	DECLARE_GLOBAL_DATA_PTR;
++	unsigned int temp, divider, remainder, fraction;
++
++	temp = 16 * gd->baudrate;
++	divider = CONFIG_PL011_CLOCK / temp;
++	remainder = CONFIG_PL011_CLOCK % temp;
++	temp = (8 * remainder) / gd->baudrate;
++	fraction = (temp >> 1) + (temp & 1);
++
++	IO_WRITE(port[CONSOLE_PORT] + UART_PL011_CR, 0x0);
++	IO_WRITE(port[CONSOLE_PORT] + UART_PL011_IBRD, divider);
++	IO_WRITE(port[CONSOLE_PORT] + UART_PL011_FBRD, fraction);
++	IO_WRITE(port[CONSOLE_PORT] + UART_PL011_LCRH,
++		(UART_PL011_LCRH_WLEN_8 | UART_PL011_LCRH_FEN));
++	IO_WRITE(port[CONSOLE_PORT] + UART_PL011_CR,
++		(UART_PL011_CR_UARTEN | UART_PL011_CR_TXE | UART_PL011_CR_RXE));
++#endif
+ }
+ 
+ static void pl01x_putc (int portnum, char c)

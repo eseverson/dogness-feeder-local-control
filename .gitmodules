@@ -1,0 +1,6 @@
+[submodule "firmware"]
+	path = firmware
+	url = https://github.com/openipc/firmware.git
+[submodule "u-boot-hi3516cv200"]
+	path = u-boot-hi3516cv200
+	url = https://github.com/OpenIPC/u-boot-hi3516cv200.git

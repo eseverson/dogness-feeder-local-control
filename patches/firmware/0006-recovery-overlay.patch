@@ -1,0 +1,90 @@
+diff --git a/general/recovery-overlay/etc/fw_env.config b/general/recovery-overlay/etc/fw_env.config
+new file mode 100644
+index 00000000..b45205e6
+--- /dev/null
++++ b/general/recovery-overlay/etc/fw_env.config
+@@ -0,0 +1,3 @@
++# fw_printenv / fw_setenv config — points at the U-Boot environment.
++# Identical to main rootfs (env partition is the same flash region).
++/dev/mtd0	0x40000	0x10000	0x10000
+diff --git a/general/recovery-overlay/etc/hostname b/general/recovery-overlay/etc/hostname
+new file mode 100644
+index 00000000..baf99894
+--- /dev/null
++++ b/general/recovery-overlay/etc/hostname
+@@ -0,0 +1 @@
++openipc-hi3518ev200-recovery
+diff --git a/general/recovery-overlay/etc/init.d/S99recovery_marker b/general/recovery-overlay/etc/init.d/S99recovery_marker
+new file mode 100755
+index 00000000..f23e45e7
+--- /dev/null
++++ b/general/recovery-overlay/etc/init.d/S99recovery_marker
+@@ -0,0 +1,31 @@
++#!/bin/sh
++# Recovery-mode marker. Drops a sentinel file deploy scripts can `test -f`
++# over SSH to detect they're talking to recovery and not main.
++#
++# Also prints a banner to console so the human watching UART knows
++# recovery is up and what address to flash to.
++
++case "$1" in
++    start)
++        touch /tmp/recovery_mode
++
++        IP=$(ip -4 addr show wlan0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1)
++        HOST=$(cat /etc/hostname 2>/dev/null)
++
++        cat <<EOF
++
++================================================================
++  RECOVERY MODE
++  hostname: ${HOST}
++  wlan0:    ${IP:-<no address>}
++  flash via: ssh root@${HOST}.local  (or root@${IP})
++  partitions:
++$(awk '{print "    " $0}' /proc/mtd)
++================================================================
++
++EOF
++        ;;
++    stop)
++        rm -f /tmp/recovery_mode
++        ;;
++esac
+diff --git a/general/recovery-overlay/usr/sbin/boot-main b/general/recovery-overlay/usr/sbin/boot-main
+new file mode 100755
+index 00000000..2fd04ff5
+--- /dev/null
++++ b/general/recovery-overlay/usr/sbin/boot-main
+@@ -0,0 +1,31 @@
++#!/bin/sh
++# Reset U-Boot bootcount and reboot into main.
++#
++# Run this from recovery once you've reflashed a working main image and
++# want to leave recovery mode. Without this step, U-Boot's boot_with_count
++# script will see bootcount > bootlimit and keep falling through to
++# recovery on every reboot.
++#
++# Usage: boot-main         # confirm + reboot
++#        boot-main -y      # skip confirmation
++
++set -e
++
++if [ "$(fw_printenv -n bootcount 2>/dev/null)" = "0" ]; then
++    echo "bootcount already 0 — nothing to reset."
++else
++    echo "resetting bootcount (was $(fw_printenv -n bootcount))"
++    fw_setenv bootcount 0
++fi
++
++if [ "$1" = "-y" ]; then
++    ans=y
++else
++    printf "reboot now? [y/N] "
++    read -r ans
++fi
++
++case "$ans" in
++    y|Y|yes|YES) reboot ;;
++    *) echo "bootcount reset; reboot manually when ready." ;;
++esac

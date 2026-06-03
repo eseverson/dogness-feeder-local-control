@@ -1,0 +1,2552 @@
+diff --git a/general/package/Config.in b/general/package/Config.in
+index 61d0f53b..6420420f 100644
+--- a/general/package/Config.in
++++ b/general/package/Config.in
+@@ -8,6 +8,7 @@ source "$BR2_EXTERNAL_GENERAL_PATH/package/aura-httpd/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/aws-producer/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/aws-webrtc/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/baresip-openipc/Config.in"
++source "$BR2_EXTERNAL_GENERAL_PATH/package/catd/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/comgt/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/divinus/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/dropbear-openipc/Config.in"
+diff --git a/general/package/catd/Config.in b/general/package/catd/Config.in
+new file mode 100644
+index 00000000..bb949cc5
+--- /dev/null
++++ b/general/package/catd/Config.in
+@@ -0,0 +1,13 @@
++config BR2_PACKAGE_CATD
++	bool "catd"
++	default n
++	depends on BR2_PACKAGE_MOSQUITTO
++	help
++	  MQTT bridge daemon for the Dogness cat feeder.
++
++	  Bridges the MCU UART protocol (feed motor, chute status) and
++	  GPIO controls (IR LED, IR cut filter) to an MQTT broker using
++	  the cat/* topic namespace. Designed for Home Assistant
++	  integration via MQTT push.
++
++	  https://openipc.org
+diff --git a/general/package/catd/catd.mk b/general/package/catd/catd.mk
+new file mode 100644
+index 00000000..8926ec0b
+--- /dev/null
++++ b/general/package/catd/catd.mk
+@@ -0,0 +1,34 @@
++################################################################################
++#
++# catd — MQTT bridge daemon for Dogness cat feeder
++#
++################################################################################
++
++CATD_LICENSE       = MIT
++CATD_DEPENDENCIES  = mosquitto
++
++define CATD_EXTRACT_CMDS
++	cp -avr $(CATD_PKGDIR)/src/* $(@D)/
++endef
++
++define CATD_BUILD_CMDS
++	$(TARGET_MAKE_ENV) $(MAKE) \
++		CC="$(TARGET_CC)" \
++		CFLAGS="$(TARGET_CFLAGS) -Wall -Wextra -std=c99 -pedantic -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE" \
++		LDFLAGS="$(TARGET_LDFLAGS) -lmosquitto -lpthread" \
++		-C $(@D)
++endef
++
++define CATD_INSTALL_TARGET_CMDS
++	$(INSTALL) -m 0755 -D $(@D)/catd $(TARGET_DIR)/usr/sbin/catd
++	$(INSTALL) -m 0755 -D $(CATD_PKGDIR)/files/S85catd \
++		$(TARGET_DIR)/etc/init.d/S85catd
++	$(INSTALL) -m 0755 -D $(CATD_PKGDIR)/files/motion.sh \
++		$(TARGET_DIR)/usr/sbin/motion.sh
++	if [ ! -f $(TARGET_DIR)/etc/catd.conf ]; then \
++		$(INSTALL) -m 0644 -D $(CATD_PKGDIR)/files/catd.conf \
++			$(TARGET_DIR)/etc/catd.conf; \
++	fi
++endef
++
++$(eval $(generic-package))
+diff --git a/general/package/catd/files/S85catd b/general/package/catd/files/S85catd
+new file mode 100644
+index 00000000..837535f5
+--- /dev/null
++++ b/general/package/catd/files/S85catd
+@@ -0,0 +1,47 @@
++#!/bin/sh
++
++DAEMON="catd"
++PIDFILE="/var/run/$DAEMON.pid"
++ARGS="-c /etc/catd.conf"
++
++start() {
++	printf "Starting %s: " "$DAEMON"
++	start-stop-daemon -b -m -S -q -p "$PIDFILE" \
++		-x "/usr/sbin/$DAEMON" -n "$DAEMON" -- $ARGS
++	[ $? -eq 0 ] && echo "OK" || echo "FAIL"
++}
++
++stop() {
++	printf "Stopping %s: " "$DAEMON"
++	# Match by name, not just the pidfile — the pidfile only ever holds the
++	# most-recently-started PID, so a pidfile-only -K leaves stray instances
++	# alive (which then fight over the MQTT client ID). -n reaps them all.
++	start-stop-daemon -K -q -n "$DAEMON"
++	# Safety net: if catd wedges on shutdown (MQTT thread join), SIGTERM
++	# alone won't kill it and stop/start cycles stack up duplicate instances
++	# that fight over the MQTT client ID. Escalate to SIGKILL after a short
++	# grace period so stop can never leave a stray daemon behind.
++	i=0
++	while pidof "$DAEMON" >/dev/null 2>&1 && [ "$i" -lt 5 ]; do
++		sleep 1
++		i=$((i + 1))
++	done
++	pidof "$DAEMON" >/dev/null 2>&1 && killall -9 "$DAEMON" 2>/dev/null
++	rm -f "$PIDFILE"
++	echo "OK"
++}
++
++case "$1" in
++	start|stop)
++		"$1"
++		;;
++	restart)
++		stop
++		sleep 1
++		start
++		;;
++	*)
++		echo "Usage: $0 {start|stop|restart}"
++		exit 1
++		;;
++esac
+diff --git a/general/package/catd/files/catd.conf b/general/package/catd/files/catd.conf
+new file mode 100644
+index 00000000..c6ca9119
+--- /dev/null
++++ b/general/package/catd/files/catd.conf
+@@ -0,0 +1,29 @@
++# catd — MQTT bridge for Dogness cat feeder
++# /etc/catd.conf
++
++# MQTT broker
++broker_host     = 192.168.1.2
++broker_port     = 1883
++# broker_user   =
++# broker_pass   =
++
++# Device identity (MQTT client ID)
++device_id       = feeder-1
++
++# MCU UART device (OpenIPC hi3518ev200: /dev/ttyAMA2)
++uart_device     = /dev/ttyAMA2
++
++# Linux sysfs GPIO numbers (group * 8 + pin)
++#   IR LED:  group 0, pin 0 = 0
++#   IR cut:  group 4, pin 5 = 37
++#   Main LED: board-specific, set to -1 to disable
++ir_led_gpio     = 0
++ir_cut_gpio     = 37
++main_led_gpio   = 2
++
++# Media URLs published to MQTT on connect
++# Leave blank to auto-detect from device IP
++stream_url      =
++snapshot_url    =
++audio_url       =
++play_audio_url  =
+diff --git a/general/package/catd/files/motion.sh b/general/package/catd/files/motion.sh
+new file mode 100755
+index 00000000..a5dc79da
+--- /dev/null
++++ b/general/package/catd/files/motion.sh
+@@ -0,0 +1,30 @@
++#!/bin/sh
++# /usr/sbin/motion.sh — called by majestic on motion detection
++# Args: $1 $2 $3 $4 = bounding box (x y w h)
++# Publishes motion event to MQTT for Home Assistant
++
++TOPIC="homeassistant/cat/motion"
++BROKER=$(sed -n 's/^broker_host[[:space:]]*=[[:space:]]*//p' /etc/catd.conf)
++PORT=$(sed -n 's/^broker_port[[:space:]]*=[[:space:]]*//p' /etc/catd.conf)
++
++[ -z "$BROKER" ] && BROKER="192.168.1.2"
++[ -z "$PORT" ] && PORT="1883"
++
++TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
++
++mosquitto_pub -h "$BROKER" -p "$PORT" \
++  -t "$TOPIC" -r \
++  -m "{\"motion\":true,\"ts\":\"$TIMESTAMP\",\"region\":[$1,$2,$3,$4]}"
++
++# Clear motion after 30s (kill any previous pending clear)
++PIDFILE="/tmp/motion_clear.pid"
++[ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
++
++(
++  echo $$ > "$PIDFILE"
++  sleep 30
++  mosquitto_pub -h "$BROKER" -p "$PORT" \
++    -t "$TOPIC" -r \
++    -m "{\"motion\":false,\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"region\":[0,0,0,0]}"
++  rm -f "$PIDFILE"
++) &
+diff --git a/general/package/catd/src/Makefile b/general/package/catd/src/Makefile
+new file mode 100644
+index 00000000..8ec48311
+--- /dev/null
++++ b/general/package/catd/src/Makefile
+@@ -0,0 +1,19 @@
++CC      ?= gcc
++CFLAGS  ?= -Wall -Wextra -std=c99 -pedantic -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
++LDFLAGS ?= -lmosquitto -lpthread
++TARGET  = catd
++SRCS    = catd.c uart.c gpio.c
++OBJS    = $(SRCS:.c=.o)
++
++.PHONY: all clean
++
++all: $(TARGET)
++
++%.o: %.c
++	$(CC) $(CFLAGS) -c -o $@ $<
++
++$(TARGET): $(OBJS)
++	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
++
++clean:
++	rm -f $(TARGET) $(OBJS)
+diff --git a/general/package/catd/src/catd.c b/general/package/catd/src/catd.c
+new file mode 100644
+index 00000000..f7716313
+--- /dev/null
++++ b/general/package/catd/src/catd.c
+@@ -0,0 +1,1740 @@
++/*
++ * catd — MQTT bridge daemon for Dogness cat feeder
++ *
++ * Bridges the MCU UART protocol (manual + scheduled feeds, schedule slots,
++ * MCU clock, motor test, firmware version) and GPIO controls (IR LED, IR
++ * cut filter) to an MQTT broker using the homeassistant/cat/ topic
++ * namespace, with HA MQTT-discovery so entities appear automatically.
++ */
++
++#include <arpa/inet.h>
++#include <errno.h>
++#include <ifaddrs.h>
++#include <net/if.h>
++#include <pthread.h>
++#include <signal.h>
++#include <stdarg.h>
++#include <stdbool.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <syslog.h>
++#include <time.h>
++#include <unistd.h>
++
++#include <mosquitto.h>
++
++#include "gpio.h"
++#include "uart.h"
++
++#define TOPIC_PREFIX "homeassistant/cat/"
++
++/* ------------------------------------------------------------------ */
++/* Configuration                                                       */
++/* ------------------------------------------------------------------ */
++
++struct config {
++	char broker_host[128];
++	int  broker_port;
++	char broker_user[128];
++	char broker_pass[128];
++	char device_id[64];
++	char uart_device[64];
++	int  ir_led_gpio;
++	int  ir_cut_gpio;
++	int  main_led_gpio;
++	char stream_url[256];
++	char snapshot_url[256];
++	char audio_url[256];
++	char play_audio_url[256];
++	char state_file[128];   /* persisted state path (key=value file) */
++	char timezone[64];      /* POSIX TZ string (e.g. "PST8PDT,M3.2.0,M11.1.0"); empty = inherit env */
++};
++
++static struct config cfg = {
++	.broker_host    = "192.168.1.2",
++	.broker_port    = 1883,
++	.device_id      = "feeder-1",
++	.uart_device    = "/dev/ttyAMA2",
++	.ir_led_gpio    = 0,
++	.ir_cut_gpio    = 37,
++	.main_led_gpio  = 2,
++	.state_file     = "/etc/catd.state",
++};
++
++/* ------------------------------------------------------------------ */
++/* Global state                                                        */
++/* ------------------------------------------------------------------ */
++
++#define NUM_MEAL_SLOTS 6   /* user-visible meal slots (Breakfast..SixthMeal) */
++
++volatile sig_atomic_t g_running = 1;
++static struct mosquitto *g_mosq;
++static int g_uart_fd = -1;
++static pthread_mutex_t g_uart_lock = PTHREAD_MUTEX_INITIALIZER;
++
++/* Feed state */
++static volatile int g_feed_pending;
++static int g_feed_amount = 1;        /* slider value, 1..10 (×10 = MCU weight) */
++static time_t g_feed_start;
++
++/* GPIO/light states */
++static int g_ir_led_state;
++static int g_ir_cut_state;
++static int g_main_led_state;
++static int g_light_monitor_state;
++
++/* Periodic-poll bookkeeping */
++static time_t g_last_brightness;
++static time_t g_last_time_sync;
++static time_t g_last_mcu_query;   /* re-query MCU version/time if we never got a response */
++static time_t g_last_gpio_poll;   /* re-read IR LED / IR cut so HA stays in sync with majestic */
++
++/* MCU info */
++static char  g_mcu_version[32];
++static int   g_mcu_have_version;
++static int   g_mcu_have_time;
++static int   g_chute_blocked = -1;   /* -1 = unknown until first cmd=0x11 frame */
++
++/* Cached schedule (slots 1..NUM_MEAL_SLOTS). We read these periodically
++ * and on demand; the structs always reflect what the MCU last reported. */
++static struct mcu_slot g_schedule[NUM_MEAL_SLOTS + 1]; /* 1-indexed */
++
++/* Forward declarations */
++static void mqtt_publish(const char *topic, const char *payload, int retain);
++static void publish_schedule_slot(int slot);
++static void publish_mcu_version(void);
++static void publish_mcu_time(time_t mcu_unix, int drift_sec);
++static void request_full_schedule(void);
++
++/* ------------------------------------------------------------------ */
++/* Logging                                                             */
++/* ------------------------------------------------------------------ */
++
++static void log_info(const char *fmt, ...)
++{
++	va_list ap;
++	va_start(ap, fmt);
++	vprintf(fmt, ap);
++	va_end(ap);
++	fflush(stdout);
++
++	char buf[512];
++	va_start(ap, fmt);
++	vsnprintf(buf, sizeof(buf), fmt, ap);
++	va_end(ap);
++	syslog(LOG_INFO, "%s", buf);
++}
++
++static void log_err(const char *fmt, ...)
++{
++	va_list ap;
++	va_start(ap, fmt);
++	vfprintf(stderr, fmt, ap);
++	va_end(ap);
++
++	char buf[512];
++	va_start(ap, fmt);
++	vsnprintf(buf, sizeof(buf), fmt, ap);
++	va_end(ap);
++	syslog(LOG_ERR, "%s", buf);
++}
++
++/* ------------------------------------------------------------------ */
++/* Config parser                                                       */
++/* ------------------------------------------------------------------ */
++
++static char *trim(char *s)
++{
++	while (*s == ' ' || *s == '\t') s++;
++	char *end = s + strlen(s) - 1;
++	while (end > s && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r'))
++		*end-- = '\0';
++	return s;
++}
++
++static int config_parse(const char *path, struct config *c)
++{
++	FILE *f = fopen(path, "r");
++	if (!f) {
++		perror(path);
++		return -1;
++	}
++
++	char line[512];
++	while (fgets(line, sizeof(line), f)) {
++		char *p = trim(line);
++		if (*p == '#' || *p == '\0')
++			continue;
++
++		char *eq = strchr(p, '=');
++		if (!eq) continue;
++
++		*eq = '\0';
++		char *key = trim(p);
++		char *val = trim(eq + 1);
++
++		if (!strcmp(key, "broker_host"))   { strncpy(c->broker_host, val, sizeof(c->broker_host) - 1); }
++		else if (!strcmp(key, "broker_port"))   { c->broker_port = atoi(val); }
++		else if (!strcmp(key, "broker_user"))   { strncpy(c->broker_user, val, sizeof(c->broker_user) - 1); }
++		else if (!strcmp(key, "broker_pass"))   { strncpy(c->broker_pass, val, sizeof(c->broker_pass) - 1); }
++		else if (!strcmp(key, "device_id"))     { strncpy(c->device_id, val, sizeof(c->device_id) - 1); }
++		else if (!strcmp(key, "uart_device"))   { strncpy(c->uart_device, val, sizeof(c->uart_device) - 1); }
++		else if (!strcmp(key, "ir_led_gpio"))   { c->ir_led_gpio = atoi(val); }
++		else if (!strcmp(key, "ir_cut_gpio"))   { c->ir_cut_gpio = atoi(val); }
++		else if (!strcmp(key, "main_led_gpio")) { c->main_led_gpio = atoi(val); }
++		else if (!strcmp(key, "stream_url"))    { strncpy(c->stream_url, val, sizeof(c->stream_url) - 1); }
++		else if (!strcmp(key, "snapshot_url"))  { strncpy(c->snapshot_url, val, sizeof(c->snapshot_url) - 1); }
++		else if (!strcmp(key, "audio_url"))     { strncpy(c->audio_url, val, sizeof(c->audio_url) - 1); }
++		else if (!strcmp(key, "play_audio_url")){ strncpy(c->play_audio_url, val, sizeof(c->play_audio_url) - 1); }
++		else if (!strcmp(key, "state_file"))    { strncpy(c->state_file, val, sizeof(c->state_file) - 1); }
++		else if (!strcmp(key, "timezone"))      { strncpy(c->timezone, val, sizeof(c->timezone) - 1); }
++		else { log_err("catd: unknown config key: %s\n", key); }
++	}
++
++	fclose(f);
++	return 0;
++}
++
++/* ------------------------------------------------------------------ */
++/* Network helpers                                                     */
++/* ------------------------------------------------------------------ */
++
++static int get_device_ip(char *buf, size_t len)
++{
++	struct ifaddrs *iflist, *ifa;
++	if (getifaddrs(&iflist) < 0)
++		return -1;
++
++	int found = -1;
++	for (ifa = iflist; ifa; ifa = ifa->ifa_next) {
++		if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
++			continue;
++		if (ifa->ifa_flags & IFF_LOOPBACK)
++			continue;
++		if (!(ifa->ifa_flags & IFF_UP))
++			continue;
++
++		struct sockaddr_in *sa = (struct sockaddr_in *)ifa->ifa_addr;
++		inet_ntop(AF_INET, &sa->sin_addr, buf, (socklen_t)len);
++		found = 0;
++		break;
++	}
++
++	freeifaddrs(iflist);
++	return found;
++}
++
++static void resolve_media_urls(struct config *c)
++{
++	if (c->stream_url[0] && c->snapshot_url[0] &&
++	    c->audio_url[0] && c->play_audio_url[0])
++		return;
++
++	char ip[64];
++	if (get_device_ip(ip, sizeof(ip)) < 0) {
++		log_err("catd: could not detect device IP for media URLs\n");
++		return;
++	}
++
++	log_info("catd: detected device IP: %s\n", ip);
++
++	if (!c->stream_url[0])
++		snprintf(c->stream_url, sizeof(c->stream_url),
++			 "rtsp://%s:554/stream=0", ip);
++	if (!c->snapshot_url[0])
++		snprintf(c->snapshot_url, sizeof(c->snapshot_url),
++			 "http://%s/image.jpg", ip);
++	if (!c->audio_url[0])
++		snprintf(c->audio_url, sizeof(c->audio_url),
++			 "http://%s/audio.m4a", ip);
++	if (!c->play_audio_url[0])
++		snprintf(c->play_audio_url, sizeof(c->play_audio_url),
++			 "http://%s/play_audio", ip);
++}
++
++/* ------------------------------------------------------------------ */
++/* ISP brightness                                                      */
++/* ------------------------------------------------------------------ */
++
++static void fetch_isp_again(char *buf, size_t len)
++{
++	buf[0] = '\0';
++	int fd = socket(AF_INET, SOCK_STREAM, 0);
++	if (fd < 0) return;
++
++	struct sockaddr_in sa;
++	memset(&sa, 0, sizeof(sa));
++	sa.sin_family = AF_INET;
++	sa.sin_port = htons(80);
++	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++
++	if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
++		close(fd);
++		return;
++	}
++
++	const char *req = "GET /metrics/isp?value=isp_again HTTP/1.0\r\n"
++			  "Host: localhost\r\n\r\n";
++	write(fd, req, strlen(req));
++
++	char resp[512];
++	int total = 0;
++	ssize_t n;
++	while (total < (int)sizeof(resp) - 1 &&
++	       (n = read(fd, resp + total, sizeof(resp) - 1 - total)) > 0)
++		total += (int)n;
++	resp[total] = '\0';
++	close(fd);
++
++	char *body = strstr(resp, "\r\n\r\n");
++	if (!body) return;
++	body += 4;
++
++	while (*body == ' ' || *body == '\n' || *body == '\r') body++;
++	char *end = body;
++	while (*end && *end != '\n' && *end != '\r') end++;
++	*end = '\0';
++
++	if (*body)
++		snprintf(buf, len, "%s", body);
++}
++
++static void poll_brightness(void)
++{
++	time_t now = time(NULL);
++	if (now - g_last_brightness < 60)
++		return;
++	g_last_brightness = now;
++
++	char val[32];
++	fetch_isp_again(val, sizeof(val));
++	if (val[0])
++		mqtt_publish(TOPIC_PREFIX "brightness", val, 1);
++}
++
++static int majestic_connect(void)
++{
++	int fd = socket(AF_INET, SOCK_STREAM, 0);
++	if (fd < 0) return -1;
++
++	struct sockaddr_in sa;
++	memset(&sa, 0, sizeof(sa));
++	sa.sin_family = AF_INET;
++	sa.sin_port = htons(80);
++	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++
++	if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
++		close(fd);
++		return -1;
++	}
++	return fd;
++}
++
++static int fetch_light_monitor(void)
++{
++	int fd = majestic_connect();
++	if (fd < 0) return -1;
++
++	const char *req = "GET /api/v1/config.json HTTP/1.0\r\n"
++			  "Host: localhost\r\n\r\n";
++	write(fd, req, strlen(req));
++
++	char *buf = malloc(32768);
++	if (!buf) { close(fd); return -1; }
++
++	int total = 0;
++	ssize_t n;
++	while (total < 32767 &&
++	       (n = read(fd, buf + total, 32767 - total)) > 0)
++		total += (int)n;
++	buf[total] = '\0';
++	close(fd);
++
++	int result = -1;
++	char *p = strstr(buf, "\"lightMonitor\"");
++	if (p) {
++		p = strchr(p, ':');
++		if (p) {
++			p++;
++			while (*p == ' ' || *p == '\t') p++;
++			if (!strncmp(p, "true", 4))       result = 1;
++			else if (!strncmp(p, "false", 5)) result = 0;
++		}
++	}
++	free(buf);
++	return result;
++}
++
++static int set_light_monitor(int enabled)
++{
++	int fd = majestic_connect();
++	if (fd < 0) return -1;
++
++	char req[256];
++	snprintf(req, sizeof(req),
++		 "GET /api/v1/set?nightMode.lightMonitor=%s HTTP/1.0\r\n"
++		 "Host: localhost\r\n\r\n",
++		 enabled ? "true" : "false");
++	write(fd, req, strlen(req));
++
++	char drain[256];
++	while (read(fd, drain, sizeof(drain)) > 0) {}
++	close(fd);
++	return 0;
++}
++
++/* ------------------------------------------------------------------ */
++/* Persisted state (key=value file in the overlay)                     */
++/* ------------------------------------------------------------------ */
++/*
++ * We persist anything the user explicitly configured via HA so that on
++ * reboot we can restore both the SoC-side controls (feed amount, GPIO
++ * states) and re-push the saved schedule to the MCU. Format is the same
++ * key=value text used by the main config — easy to parse and to inspect
++ * with `cat`. Writes are atomic (write to .tmp + fsync + rename) so a
++ * crash mid-write can't truncate the file.
++ */
++
++static void state_save(void)
++{
++	if (!cfg.state_file[0]) return;
++
++	char tmp[160];
++	snprintf(tmp, sizeof(tmp), "%s.tmp", cfg.state_file);
++
++	FILE *f = fopen(tmp, "w");
++	if (!f) {
++		log_err("catd: state_save: open %s: %s\n", tmp, strerror(errno));
++		return;
++	}
++
++	fprintf(f, "# catd persisted state — overwritten on every change\n");
++	fprintf(f, "feed_amount=%d\n", g_feed_amount);
++	fprintf(f, "ir_led=%d\n", g_ir_led_state);
++	fprintf(f, "ir_cut=%d\n", g_ir_cut_state);
++	if (cfg.main_led_gpio >= 0)
++		fprintf(f, "main_led=%d\n", g_main_led_state);
++	fprintf(f, "light_monitor=%d\n", g_light_monitor_state);
++
++	for (int i = 1; i <= NUM_MEAL_SLOTS; i++) {
++		const struct mcu_slot *s = &g_schedule[i];
++		fprintf(f, "slot%d_hour=%d\n",    i, s->hour);
++		fprintf(f, "slot%d_minute=%d\n",  i, s->minute);
++		fprintf(f, "slot%d_weight=%d\n",  i, s->weight);
++		fprintf(f, "slot%d_enabled=%d\n", i, s->enabled);
++		fprintf(f, "slot%d_audio=%d\n",   i, s->audio_idx);
++	}
++
++	fflush(f);
++	fsync(fileno(f));
++	fclose(f);
++
++	if (rename(tmp, cfg.state_file) < 0) {
++		log_err("catd: state_save: rename %s -> %s: %s\n",
++			tmp, cfg.state_file, strerror(errno));
++		unlink(tmp);
++	}
++}
++
++/*
++ * Load saved state into the same globals state_save() wrote. Missing file
++ * is not an error — defaults stay in place. Returns 1 if a file was read,
++ * 0 otherwise.
++ */
++static int state_load(void)
++{
++	if (!cfg.state_file[0]) return 0;
++
++	FILE *f = fopen(cfg.state_file, "r");
++	if (!f) {
++		log_info("catd: no saved state at %s (using defaults)\n",
++			 cfg.state_file);
++		return 0;
++	}
++
++	char line[256];
++	while (fgets(line, sizeof(line), f)) {
++		char *p = trim(line);
++		if (*p == '#' || *p == '\0') continue;
++		char *eq = strchr(p, '=');
++		if (!eq) continue;
++		*eq = '\0';
++		char *key = trim(p);
++		char *val = trim(eq + 1);
++		int v = atoi(val);
++
++		if      (!strcmp(key, "feed_amount"))   g_feed_amount = v;
++		else if (!strcmp(key, "ir_led"))        g_ir_led_state = v;
++		else if (!strcmp(key, "ir_cut"))        g_ir_cut_state = v;
++		else if (!strcmp(key, "main_led"))      g_main_led_state = v;
++		else if (!strcmp(key, "light_monitor")) g_light_monitor_state = v;
++		else if (!strncmp(key, "slot", 4)) {
++			int slot = atoi(key + 4);
++			char *under = strchr(key + 4, '_');
++			if (slot < 1 || slot > NUM_MEAL_SLOTS || !under)
++				continue;
++			const char *field = under + 1;
++			struct mcu_slot *s = &g_schedule[slot];
++			s->slot_num = slot;
++			if (s->kind == MCU_SLOT_EMPTY) s->kind = MCU_SLOT_AUTOFEED;
++			if      (!strcmp(field, "hour"))    s->hour = v;
++			else if (!strcmp(field, "minute"))  s->minute = v;
++			else if (!strcmp(field, "weight"))  s->weight = v;
++			else if (!strcmp(field, "enabled")) s->enabled = v;
++			else if (!strcmp(field, "audio"))   s->audio_idx = v;
++		}
++	}
++
++	fclose(f);
++	log_info("catd: loaded state from %s (feed_amount=%d)\n",
++		 cfg.state_file, g_feed_amount);
++	return 1;
++}
++
++/* ------------------------------------------------------------------ */
++/* MQTT helpers                                                        */
++/* ------------------------------------------------------------------ */
++
++static void mqtt_publish(const char *topic, const char *payload, int retain)
++{
++	if (!g_mosq) return;
++	mosquitto_publish(g_mosq, NULL, topic, (int)strlen(payload),
++			  payload, 1, retain);
++}
++
++static void publish_feed_status(const char *status)
++{
++	mqtt_publish(TOPIC_PREFIX "feed/status", status, 1);
++}
++
++static void publish_feed_result(int dispensed_weight, const uint8_t *raw, int raw_len)
++{
++	char hexbuf[192] = "";
++	int hpos = 0;
++	for (int i = 0; i < raw_len && hpos < (int)sizeof(hexbuf) - 3; i++)
++		hpos += snprintf(hexbuf + hpos, sizeof(hexbuf) - hpos,
++				 "%02x ", raw[i]);
++
++	int portions = dispensed_weight / 10;
++	char json[512];
++	snprintf(json, sizeof(json),
++		 "{\"portions\":%d,\"weight\":%d,\"raw\":\"%s\"}",
++		 portions, dispensed_weight, hexbuf);
++	mqtt_publish(TOPIC_PREFIX "feed/result", json, 0);
++}
++
++static void publish_mcu_version(void)
++{
++	if (g_mcu_have_version)
++		mqtt_publish(TOPIC_PREFIX "mcu/version", g_mcu_version, 1);
++}
++
++/*
++ * The MCU stores wall-clock time without a timezone tag; we set it from
++ * localtime() so MCU "12:00" means the device's local 12:00. Convert that
++ * back to a UTC unix time and emit ISO 8601 with a Z suffix — HA's
++ * device_class:timestamp requires the timezone marker (without it the
++ * sensor stays "unknown").
++ */
++static void publish_mcu_time(time_t mcu_unix, int drift_sec)
++{
++	struct tm utc;
++	gmtime_r(&mcu_unix, &utc);
++
++	char iso[40];
++	strftime(iso, sizeof(iso), "%Y-%m-%dT%H:%M:%SZ", &utc);
++	mqtt_publish(TOPIC_PREFIX "mcu/time", iso, 1);
++
++	char drift[16];
++	snprintf(drift, sizeof(drift), "%d", drift_sec);
++	mqtt_publish(TOPIC_PREFIX "mcu/drift_sec", drift, 1);
++}
++
++static const char *slot_kind_str(enum mcu_slot_kind k)
++{
++	switch (k) {
++	case MCU_SLOT_AUTOFEED: return "autofeed";
++	case MCU_SLOT_MEAL:     return "meal";
++	default:                return "empty";
++	}
++}
++
++static void publish_schedule_slot(int slot)
++{
++	if (slot < 1 || slot > NUM_MEAL_SLOTS) return;
++	const struct mcu_slot *s = &g_schedule[slot];
++
++	char base[64];
++	snprintf(base, sizeof(base), TOPIC_PREFIX "schedule/%d", slot);
++
++	char topic[96];
++	char val[32];
++
++	/* HH:MM string for HA time entity */
++	snprintf(topic, sizeof(topic), "%s/time", base);
++	snprintf(val, sizeof(val), "%02d:%02d:00", s->hour, s->minute);
++	mqtt_publish(topic, val, 1);
++
++	/* Weight (grams) for HA number entity */
++	snprintf(topic, sizeof(topic), "%s/weight", base);
++	snprintf(val, sizeof(val), "%d", s->weight);
++	mqtt_publish(topic, val, 1);
++
++	/* Enabled state for HA switch */
++	snprintf(topic, sizeof(topic), "%s/enabled", base);
++	mqtt_publish(topic, s->enabled ? "ON" : "OFF", 1);
++
++	/* Slot kind (autofeed / meal / empty) for diagnostic */
++	snprintf(topic, sizeof(topic), "%s/kind", base);
++	mqtt_publish(topic, slot_kind_str(s->kind), 1);
++}
++
++/* ------------------------------------------------------------------ */
++/* Home Assistant MQTT Discovery                                       */
++/* ------------------------------------------------------------------ */
++
++static void ha_publish(const char *component, const char *object_id,
++		       const char *payload)
++{
++	char topic[256];
++	snprintf(topic, sizeof(topic), "homeassistant/%s/%s/%s/config",
++		 component, cfg.device_id, object_id);
++	mqtt_publish(topic, payload, 1);
++}
++
++static const char *ha_device_fmt =
++	"\"dev\":{"
++		"\"ids\":[\"%s\"],"
++		"\"name\":\"Cat Feeder\","
++		"\"mf\":\"Dogness\","
++		"\"mdl\":\"PETS V200\","
++		"\"sw\":\"catd 1.1\""
++	"},"
++	"\"avty_t\":\"homeassistant/cat/status\","
++	"\"pl_avail\":\"online\","
++	"\"pl_not_avail\":\"offline\"";
++
++static void publish_schedule_discovery(int slot, const char *dev)
++{
++	char buf[1024];
++	char obj[32];
++
++	if (slot < 1 || slot > NUM_MEAL_SLOTS) return;
++
++	/* Time entity — exposed as a `text` MQTT entity so it appears reliably
++	 * across HA versions / discovery quirks. The `pattern` enforces HH:MM
++	 * input client-side; catd's parse_hhmm accepts HH:MM and HH:MM:SS. */
++	snprintf(obj, sizeof(obj), "schedule_%d_time", slot);
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Schedule %d Time\","
++		 "\"uniq_id\":\"%s_sched%d_time\","
++		 "\"cmd_t\":\"homeassistant/cat/schedule/%d/time/set\","
++		 "\"stat_t\":\"homeassistant/cat/schedule/%d/time\","
++		 "\"pattern\":\"^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$\","
++		 "\"min\":5,\"max\":8,"
++		 "\"ic\":\"mdi:clock-outline\","
++		 "%s"
++		 "}",
++		 slot, cfg.device_id, slot, slot, slot, dev);
++	ha_publish("text", obj, buf);
++
++	/* Weight number entity — exposed as portions (1..10); catd multiplies
++	 * by 10 before sending to the MCU so the wire bytes are in the MCU's
++	 * native unit (which the MCU validates as ≥ 10). */
++	snprintf(obj, sizeof(obj), "schedule_%d_weight", slot);
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Schedule %d Portions\","
++		 "\"uniq_id\":\"%s_sched%d_weight\","
++		 "\"cmd_t\":\"homeassistant/cat/schedule/%d/weight/set\","
++		 "\"stat_t\":\"homeassistant/cat/schedule/%d/weight\","
++		 "\"min\":1,\"max\":10,\"step\":1,"
++		 "\"unit_of_meas\":\"portions\","
++		 "\"mode\":\"slider\","
++		 "\"ic\":\"mdi:scale\","
++		 "%s"
++		 "}",
++		 slot, cfg.device_id, slot, slot, slot, dev);
++	ha_publish("number", obj, buf);
++
++	/* Enabled switch */
++	snprintf(obj, sizeof(obj), "schedule_%d_enabled", slot);
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Schedule %d Enabled\","
++		 "\"uniq_id\":\"%s_sched%d_enabled\","
++		 "\"cmd_t\":\"homeassistant/cat/schedule/%d/enabled/set\","
++		 "\"stat_t\":\"homeassistant/cat/schedule/%d/enabled\","
++		 "\"pl_on\":\"ON\",\"pl_off\":\"OFF\","
++		 "\"ic\":\"mdi:calendar-check\","
++		 "%s"
++		 "}",
++		 slot, cfg.device_id, slot, slot, slot, dev);
++	ha_publish("switch", obj, buf);
++}
++
++static void publish_ha_discovery(void)
++{
++	char buf[1024];
++	char dev[512];
++
++	snprintf(dev, sizeof(dev), ha_device_fmt, cfg.device_id);
++
++	/* Feed amount slider (used by feed button) */
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Feed Amount\","
++		 "\"uniq_id\":\"%s_feed_amount\","
++		 "\"cmd_t\":\"homeassistant/cat/feed/amount/set\","
++		 "\"stat_t\":\"homeassistant/cat/feed/amount\","
++		 "\"min\":1,\"max\":10,\"step\":1,"
++		 "\"mode\":\"slider\","
++		 "\"ic\":\"mdi:food-drumstick\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("number", "feed_amount", buf);
++
++	/* Feed-now button */
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Feed\","
++		 "\"uniq_id\":\"%s_feed\","
++		 "\"cmd_t\":\"homeassistant/cat/feed/command\","
++		 "\"pl_prs\":\"PRESS\","
++		 "\"ic\":\"mdi:food-drumstick\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("button", "feed", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Feed Status\","
++		 "\"uniq_id\":\"%s_feed_status\","
++		 "\"stat_t\":\"homeassistant/cat/feed/status\","
++		 "\"ic\":\"mdi:food-drumstick\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("sensor", "feed_status", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Feed Result\","
++		 "\"uniq_id\":\"%s_feed_result\","
++		 "\"stat_t\":\"homeassistant/cat/feed/result\","
++		 "\"val_tpl\":\"{{ value_json.portions }}\","
++		 "\"unit_of_meas\":\"portions\","
++		 "\"ic\":\"mdi:scale\","
++		 "\"json_attr_t\":\"homeassistant/cat/feed/result\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("sensor", "feed_result", buf);
++
++	/* Chute-blocked binary sensor (cmd=0x11 from MCU) */
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Chute Blocked\","
++		 "\"uniq_id\":\"%s_chute_blocked\","
++		 "\"stat_t\":\"homeassistant/cat/chute/blocked\","
++		 "\"pl_on\":\"true\",\"pl_off\":\"false\","
++		 "\"dev_cla\":\"problem\","
++		 "\"ic\":\"mdi:alert-circle\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("binary_sensor", "chute_blocked", buf);
++
++	/* MCU clock + drift diagnostics */
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"MCU Time\","
++		 "\"uniq_id\":\"%s_mcu_time\","
++		 "\"stat_t\":\"homeassistant/cat/mcu/time\","
++		 "\"dev_cla\":\"timestamp\","
++		 "\"ic\":\"mdi:clock-digital\","
++		 "\"ent_cat\":\"diagnostic\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("sensor", "mcu_time", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"MCU Clock Drift\","
++		 "\"uniq_id\":\"%s_mcu_drift\","
++		 "\"stat_t\":\"homeassistant/cat/mcu/drift_sec\","
++		 "\"unit_of_meas\":\"s\","
++		 "\"ic\":\"mdi:clock-alert\","
++		 "\"ent_cat\":\"diagnostic\","
++		 "\"stat_cla\":\"measurement\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("sensor", "mcu_drift", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"MCU Firmware Version\","
++		 "\"uniq_id\":\"%s_mcu_version\","
++		 "\"stat_t\":\"homeassistant/cat/mcu/version\","
++		 "\"ic\":\"mdi:chip\","
++		 "\"ent_cat\":\"diagnostic\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("sensor", "mcu_version", buf);
++
++	/* Maintenance buttons */
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Sync MCU Clock\","
++		 "\"uniq_id\":\"%s_sync_clock\","
++		 "\"cmd_t\":\"homeassistant/cat/mcu/sync_time\","
++		 "\"pl_prs\":\"PRESS\","
++		 "\"ic\":\"mdi:clock-check\","
++		 "\"ent_cat\":\"config\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("button", "sync_clock", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Motor Self Test\","
++		 "\"uniq_id\":\"%s_motor_test\","
++		 "\"cmd_t\":\"homeassistant/cat/mcu/motor_test\","
++		 "\"pl_prs\":\"PRESS\","
++		 "\"ic\":\"mdi:engine\","
++		 "\"ent_cat\":\"diagnostic\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("button", "motor_test", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Refresh Schedule\","
++		 "\"uniq_id\":\"%s_refresh_sched\","
++		 "\"cmd_t\":\"homeassistant/cat/schedule/refresh\","
++		 "\"pl_prs\":\"PRESS\","
++		 "\"ic\":\"mdi:reload\","
++		 "\"ent_cat\":\"diagnostic\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("button", "refresh_sched", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Clear All Schedules\","
++		 "\"uniq_id\":\"%s_clear_sched\","
++		 "\"cmd_t\":\"homeassistant/cat/schedule/clear_all\","
++		 "\"pl_prs\":\"PRESS\","
++		 "\"ic\":\"mdi:calendar-remove\","
++		 "\"ent_cat\":\"config\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("button", "clear_sched", buf);
++
++	/* GPIO/light switches */
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"IR LED\","
++		 "\"uniq_id\":\"%s_ir_led\","
++		 "\"cmd_t\":\"homeassistant/cat/ir_led/set\","
++		 "\"stat_t\":\"homeassistant/cat/ir_led/state\","
++		 "\"pl_on\":\"ON\",\"pl_off\":\"OFF\","
++		 "\"ic\":\"mdi:led-on\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("switch", "ir_led", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"IR Cut Filter\","
++		 "\"uniq_id\":\"%s_ir_cut\","
++		 "\"cmd_t\":\"homeassistant/cat/ir_cut/set\","
++		 "\"stat_t\":\"homeassistant/cat/ir_cut/state\","
++		 "\"pl_on\":\"ON\",\"pl_off\":\"OFF\","
++		 "\"ic\":\"mdi:camera-iris\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("switch", "ir_cut", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Auto Night Mode\","
++		 "\"uniq_id\":\"%s_light_monitor\","
++		 "\"cmd_t\":\"homeassistant/cat/light_monitor/set\","
++		 "\"stat_t\":\"homeassistant/cat/light_monitor/state\","
++		 "\"pl_on\":\"ON\",\"pl_off\":\"OFF\","
++		 "\"ic\":\"mdi:theme-light-dark\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("switch", "light_monitor", buf);
++
++	if (cfg.main_led_gpio >= 0) {
++		snprintf(buf, sizeof(buf),
++			 "{"
++			 "\"name\":\"LED\","
++			 "\"uniq_id\":\"%s_led\","
++			 "\"cmd_t\":\"homeassistant/cat/led/set\","
++			 "\"stat_t\":\"homeassistant/cat/led/state\","
++			 "\"pl_on\":\"ON\",\"pl_off\":\"OFF\","
++			 "\"ic\":\"mdi:lightbulb\","
++			 "%s"
++			 "}",
++			 cfg.device_id, dev);
++		ha_publish("switch", "led", buf);
++	}
++
++	/* URLs (kept as before) */
++	if (cfg.stream_url[0]) {
++		snprintf(buf, sizeof(buf),
++			 "{\"name\":\"Stream URL\","
++			 "\"uniq_id\":\"%s_stream_url\","
++			 "\"stat_t\":\"homeassistant/cat/video/stream\","
++			 "\"ic\":\"mdi:cctv\","
++			 "\"ent_cat\":\"diagnostic\","
++			 "%s}",
++			 cfg.device_id, dev);
++		ha_publish("sensor", "stream_url", buf);
++	}
++	if (cfg.snapshot_url[0]) {
++		snprintf(buf, sizeof(buf),
++			 "{\"name\":\"Snapshot URL\","
++			 "\"uniq_id\":\"%s_snapshot_url\","
++			 "\"stat_t\":\"homeassistant/cat/video/snapshot\","
++			 "\"ic\":\"mdi:camera\","
++			 "\"ent_cat\":\"diagnostic\","
++			 "%s}",
++			 cfg.device_id, dev);
++		ha_publish("sensor", "snapshot_url", buf);
++	}
++	if (cfg.audio_url[0]) {
++		snprintf(buf, sizeof(buf),
++			 "{\"name\":\"Audio Stream URL\","
++			 "\"uniq_id\":\"%s_audio_url\","
++			 "\"stat_t\":\"homeassistant/cat/audio/stream\","
++			 "\"ic\":\"mdi:microphone\","
++			 "\"ent_cat\":\"diagnostic\","
++			 "%s}",
++			 cfg.device_id, dev);
++		ha_publish("sensor", "audio_url", buf);
++	}
++	if (cfg.play_audio_url[0]) {
++		snprintf(buf, sizeof(buf),
++			 "{\"name\":\"Play Audio URL\","
++			 "\"uniq_id\":\"%s_play_audio_url\","
++			 "\"stat_t\":\"homeassistant/cat/audio/play\","
++			 "\"ic\":\"mdi:speaker\","
++			 "\"ent_cat\":\"diagnostic\","
++			 "%s}",
++			 cfg.device_id, dev);
++		ha_publish("sensor", "play_audio_url", buf);
++	}
++
++	/* Motion + brightness */
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Motion\","
++		 "\"uniq_id\":\"%s_motion\","
++		 "\"stat_t\":\"homeassistant/cat/motion\","
++		 "\"val_tpl\":\"{{ value_json.motion }}\","
++		 "\"pl_on\":\"True\",\"pl_off\":\"False\","
++		 "\"dev_cla\":\"motion\","
++		 "\"json_attr_t\":\"homeassistant/cat/motion\","
++		 "\"ic\":\"mdi:motion-sensor\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("binary_sensor", "motion", buf);
++
++	snprintf(buf, sizeof(buf),
++		 "{"
++		 "\"name\":\"Brightness\","
++		 "\"uniq_id\":\"%s_brightness\","
++		 "\"stat_t\":\"homeassistant/cat/brightness\","
++		 "\"ic\":\"mdi:brightness-6\","
++		 "\"ent_cat\":\"diagnostic\","
++		 "\"stat_cla\":\"measurement\","
++		 "%s"
++		 "}",
++		 cfg.device_id, dev);
++	ha_publish("sensor", "brightness", buf);
++
++	/* Per-slot schedule entities (3 entities each × 6 slots) */
++	for (int s = 1; s <= NUM_MEAL_SLOTS; s++)
++		publish_schedule_discovery(s, dev);
++
++	log_info("catd: published HA discovery for %s\n", cfg.device_id);
++}
++
++/* ------------------------------------------------------------------ */
++/* MCU command helpers                                                 */
++/* ------------------------------------------------------------------ */
++
++static int mcu_set_time_now(void)
++{
++	pthread_mutex_lock(&g_uart_lock);
++	int ret = uart_send_set_time(g_uart_fd, time(NULL));
++	pthread_mutex_unlock(&g_uart_lock);
++	if (ret == 0) g_last_time_sync = time(NULL);
++	return ret;
++}
++
++static int mcu_get_time(void)
++{
++	pthread_mutex_lock(&g_uart_lock);
++	int ret = uart_send_get_time(g_uart_fd);
++	pthread_mutex_unlock(&g_uart_lock);
++	return ret;
++}
++
++static int mcu_get_version(void)
++{
++	pthread_mutex_lock(&g_uart_lock);
++	int ret = uart_send_get_version(g_uart_fd);
++	pthread_mutex_unlock(&g_uart_lock);
++	return ret;
++}
++
++static int mcu_motor_test(void)
++{
++	pthread_mutex_lock(&g_uart_lock);
++	int ret = uart_send_motor_test(g_uart_fd);
++	pthread_mutex_unlock(&g_uart_lock);
++	return ret;
++}
++
++static int mcu_read_schedule(int slot)
++{
++	pthread_mutex_lock(&g_uart_lock);
++	int ret = uart_send_read_schedule(g_uart_fd, slot);
++	pthread_mutex_unlock(&g_uart_lock);
++	return ret;
++}
++
++/*
++ * Write a slot to the MCU. We use the cmd=0x01 / A5 A7 7F (auto-feed) record
++ * form because the cmd=0x02 / 12 01 01 (meal-record) SET form is rejected
++ * over UART (per MCU_PROTOCOL.md §4.5). Both forms produce a recurring-daily
++ * schedule when stored, so this is functionally equivalent.
++ *
++ * `portions` is the user-facing 1..10 value; we multiply by 10 here to get
++ * the MCU's native weight unit (which it validates as ≥ 10). The raw weight
++ * never appears outside this function.
++ */
++static int mcu_write_slot(int slot, int hour, int minute, int portions,
++			  int audio_idx, int enabled)
++{
++	int wire_weight = portions * 10;
++	pthread_mutex_lock(&g_uart_lock);
++	int ret = uart_send_auto_feed(g_uart_fd, hour, minute, wire_weight,
++				       audio_idx, slot, enabled);
++	pthread_mutex_unlock(&g_uart_lock);
++	return ret;
++}
++
++static int mcu_manual_feed(int weight)
++{
++	pthread_mutex_lock(&g_uart_lock);
++	int ret = uart_send_manual_feed(g_uart_fd, (uint8_t)weight);
++	pthread_mutex_unlock(&g_uart_lock);
++	return ret;
++}
++
++static void request_full_schedule(void)
++{
++	mcu_read_schedule(0);  /* slot=0 → MCU dumps all 8 */
++}
++
++/*
++ * Push every loaded schedule slot to the MCU so the MCU's table matches
++ * our persisted state. Called once on startup. Slots that were never
++ * configured (kind=EMPTY) are skipped — we don't want to clobber whatever
++ * factory defaults the MCU has for them.
++ */
++static void mcu_push_saved_schedule(void)
++{
++	for (int slot = 1; slot <= NUM_MEAL_SLOTS; slot++) {
++		struct mcu_slot *s = &g_schedule[slot];
++		if (s->kind == MCU_SLOT_EMPTY) continue;
++		/* The auto-feed wire format requires weight ≥ 10 in MCU units
++		 * (= 1 portion) even when the slot is disabled. */
++		int p = (s->weight >= 1) ? s->weight : 1;
++		mcu_write_slot(slot, s->hour, s->minute, p,
++			       s->audio_idx, s->enabled);
++		usleep(50 * 1000);
++	}
++}
++
++/* ------------------------------------------------------------------ */
++/* MQTT command handlers                                               */
++/* ------------------------------------------------------------------ */
++
++static int parse_on_off(const char *p)
++{
++	return (!strcmp(p, "ON") || !strcmp(p, "true") || !strcmp(p, "1"));
++}
++
++/* "HH:MM" or "HH:MM:SS" → out_h, out_m. Returns 0 on success. */
++static int parse_hhmm(const char *s, int *out_h, int *out_m)
++{
++	int h = -1, m = -1;
++	if (sscanf(s, "%d:%d", &h, &m) != 2) return -1;
++	if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
++	*out_h = h; *out_m = m;
++	return 0;
++}
++
++static void handle_feed_amount(const char *payload)
++{
++	int amount = (int)(strtof(payload, NULL) + 0.5f);
++	if (amount < 1) amount = 1;
++	if (amount > 10) amount = 10;
++
++	if (amount == g_feed_amount) return;
++	g_feed_amount = amount;
++
++	char buf[16];
++	snprintf(buf, sizeof(buf), "%d.0", g_feed_amount);
++	mqtt_publish(TOPIC_PREFIX "feed/amount", buf, 1);
++	log_info("catd: feed amount set to %d\n", g_feed_amount);
++	state_save();
++}
++
++static void handle_feed_command(const char *payload)
++{
++	(void)payload;
++	if (g_feed_pending) {
++		log_info("catd: feed already in progress, ignoring\n");
++		publish_feed_status("busy");
++		return;
++	}
++	int mcu_weight = g_feed_amount * 10;
++	log_info("catd: feed triggered, amount=%d mcu_weight=%d\n",
++		 g_feed_amount, mcu_weight);
++	publish_feed_status("feeding");
++
++	if (mcu_manual_feed(mcu_weight) < 0) {
++		log_err("catd: failed to send feed command\n");
++		publish_feed_status("error");
++		return;
++	}
++	g_feed_pending = 1;
++	g_feed_start = time(NULL);
++}
++
++static void handle_ir_led_set(const char *payload)
++{
++	int state = parse_on_off(payload);
++	gpio_write(cfg.ir_led_gpio, state);
++	g_ir_led_state = state;
++	mqtt_publish(TOPIC_PREFIX "ir_led/state", state ? "ON" : "OFF", 1);
++	state_save();
++}
++
++static void handle_ir_cut_set(const char *payload)
++{
++	int state = parse_on_off(payload);
++	gpio_write(cfg.ir_cut_gpio, state);
++	g_ir_cut_state = state;
++	mqtt_publish(TOPIC_PREFIX "ir_cut/state", state ? "ON" : "OFF", 1);
++	state_save();
++}
++
++static void handle_main_led_set(const char *payload)
++{
++	if (cfg.main_led_gpio < 0) return;
++	int state = parse_on_off(payload);
++	gpio_write(cfg.main_led_gpio, state);
++	g_main_led_state = state;
++	mqtt_publish(TOPIC_PREFIX "led/state", state ? "ON" : "OFF", 1);
++	state_save();
++}
++
++static void handle_light_monitor_set(const char *payload)
++{
++	int state = parse_on_off(payload);
++	if (set_light_monitor(state) < 0) return;
++	g_light_monitor_state = state;
++	mqtt_publish(TOPIC_PREFIX "light_monitor/state", state ? "ON" : "OFF", 1);
++	state_save();
++}
++
++static void handle_sync_time(const char *payload)
++{
++	(void)payload;
++	if (mcu_set_time_now() == 0) {
++		log_info("catd: pushed host time to MCU\n");
++		mcu_get_time();  /* readback to refresh sensor */
++	}
++}
++
++static void handle_motor_test(const char *payload)
++{
++	(void)payload;
++	if (mcu_motor_test() == 0)
++		log_info("catd: motor self-test triggered\n");
++}
++
++static void handle_refresh_schedule(const char *payload)
++{
++	(void)payload;
++	log_info("catd: refresh schedule requested\n");
++	request_full_schedule();
++}
++
++static void handle_clear_all_schedules(const char *payload)
++{
++	(void)payload;
++	log_info("catd: clearing all schedule slots\n");
++	for (int slot = 1; slot <= NUM_MEAL_SLOTS; slot++) {
++		struct mcu_slot *s = &g_schedule[slot];
++		/* Preserve existing HH:MM/portions so the slot still has a
++		 * valid schedule on the wire (≥ 1 portion required); just flip
++		 * the enable flag so it never fires. */
++		int h = s->hour;
++		int m = s->minute;
++		int p = (s->weight >= 1) ? s->weight : 1;
++		mcu_write_slot(slot, h, m, p, 0 /* audio */, 0 /* enabled */);
++		usleep(50 * 1000);  /* small gap so the MCU keeps up */
++		s->kind = MCU_SLOT_AUTOFEED;
++		s->slot_num = slot;
++		s->hour = h; s->minute = m;
++		s->weight = p;
++		s->audio_idx = 0;
++		s->enabled = 0;
++		publish_schedule_slot(slot);
++	}
++	state_save();
++	request_full_schedule();
++}
++
++/*
++ * Schedule slot updates from HA.
++ * Topic: homeassistant/cat/schedule/N/{time,weight,enabled}/set
++ * We update our cached g_schedule[N] in-place, then push the full record
++ * to the MCU via uart_send_meal_slot.
++ */
++static void handle_schedule_set(int slot, const char *field, const char *payload)
++{
++	if (slot < 1 || slot > NUM_MEAL_SLOTS) return;
++	struct mcu_slot *s = &g_schedule[slot];
++
++	/* Default to autofeed kind if we haven't seen the slot yet — that's the
++	 * only form the MCU accepts via UART writes. */
++	if (s->kind == MCU_SLOT_EMPTY) {
++		s->kind     = MCU_SLOT_AUTOFEED;
++		s->slot_num = slot;
++	}
++
++	if (!strcmp(field, "time")) {
++		int h, m;
++		if (parse_hhmm(payload, &h, &m) < 0) {
++			log_err("catd: bad time payload for slot %d: %s\n", slot, payload);
++			return;
++		}
++		s->hour = h;
++		s->minute = m;
++	} else if (!strcmp(field, "weight")) {
++		/* HA sends portions (1..10); we keep that scale internally */
++		int p = atoi(payload);
++		if (p < 1) p = 1;
++		if (p > 10) p = 10;
++		s->weight = p;
++	} else if (!strcmp(field, "enabled")) {
++		s->enabled = parse_on_off(payload);
++	} else {
++		return;
++	}
++
++	log_info("catd: slot %d update — %02d:%02d weight=%d enabled=%d audio=%d\n",
++		 slot, s->hour, s->minute, s->weight, s->enabled, s->audio_idx);
++
++	if (mcu_write_slot(slot, s->hour, s->minute, s->weight,
++			    s->audio_idx, s->enabled) == 0) {
++		publish_schedule_slot(slot);
++		state_save();
++	}
++}
++
++/* ------------------------------------------------------------------ */
++/* MQTT callbacks                                                      */
++/* ------------------------------------------------------------------ */
++
++static void on_connect(struct mosquitto *mosq, void *ud, int rc)
++{
++	(void)ud;
++	if (rc != 0) {
++		log_err("catd: MQTT connect failed: %s\n", mosquitto_connack_string(rc));
++		return;
++	}
++	log_info("catd: MQTT connected to %s:%d\n", cfg.broker_host, cfg.broker_port);
++
++	mqtt_publish(TOPIC_PREFIX "status", "online", 1);
++
++	g_ir_led_state = gpio_read(cfg.ir_led_gpio);
++	if (g_ir_led_state < 0) g_ir_led_state = 0;
++	g_ir_cut_state = gpio_read(cfg.ir_cut_gpio);
++	if (g_ir_cut_state < 0) g_ir_cut_state = 0;
++	mqtt_publish(TOPIC_PREFIX "ir_led/state", g_ir_led_state ? "ON" : "OFF", 1);
++	mqtt_publish(TOPIC_PREFIX "ir_cut/state", g_ir_cut_state ? "ON" : "OFF", 1);
++
++	int lm = fetch_light_monitor();
++	g_light_monitor_state = (lm > 0) ? 1 : 0;
++	mqtt_publish(TOPIC_PREFIX "light_monitor/state",
++		     g_light_monitor_state ? "ON" : "OFF", 1);
++
++	if (cfg.main_led_gpio >= 0) {
++		g_main_led_state = gpio_read(cfg.main_led_gpio);
++		if (g_main_led_state < 0) g_main_led_state = 0;
++		mqtt_publish(TOPIC_PREFIX "led/state", g_main_led_state ? "ON" : "OFF", 1);
++	}
++
++	if (cfg.stream_url[0])     mqtt_publish(TOPIC_PREFIX "video/stream", cfg.stream_url, 1);
++	if (cfg.snapshot_url[0])   mqtt_publish(TOPIC_PREFIX "video/snapshot", cfg.snapshot_url, 1);
++	if (cfg.audio_url[0])      mqtt_publish(TOPIC_PREFIX "audio/stream", cfg.audio_url, 1);
++	if (cfg.play_audio_url[0]) mqtt_publish(TOPIC_PREFIX "audio/play", cfg.play_audio_url, 1);
++
++	publish_feed_status("idle");
++	/* Default chute = clear until MCU tells us otherwise via cmd=0x11. */
++	mqtt_publish(TOPIC_PREFIX "chute/blocked", "false", 1);
++	mqtt_publish(TOPIC_PREFIX "motion",
++		     "{\"motion\":false,\"ts\":\"\",\"region\":[0,0,0,0]}", 1);
++	{
++		char buf[16];
++		snprintf(buf, sizeof(buf), "%d.0", g_feed_amount);
++		mqtt_publish(TOPIC_PREFIX "feed/amount", buf, 1);
++	}
++
++	/* Subscribe to all command topics */
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "feed/amount/set", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "feed/command", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "ir_led/set", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "ir_cut/set", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "light_monitor/set", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "mcu/sync_time", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "mcu/motor_test", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "schedule/refresh", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "schedule/clear_all", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "schedule/+/time/set", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "schedule/+/weight/set", 1);
++	mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "schedule/+/enabled/set", 1);
++	if (cfg.main_led_gpio >= 0)
++		mosquitto_subscribe(mosq, NULL, TOPIC_PREFIX "led/set", 1);
++
++	publish_ha_discovery();
++
++	/* Kick off MCU queries */
++	mcu_get_version();
++	mcu_get_time();
++	request_full_schedule();
++}
++
++static void on_disconnect(struct mosquitto *mosq, void *ud, int rc)
++{
++	(void)mosq; (void)ud;
++	if (rc != 0)
++		log_err("catd: MQTT disconnected (rc=%d), reconnecting...\n", rc);
++}
++
++static void on_message(struct mosquitto *mosq, void *ud,
++		       const struct mosquitto_message *msg)
++{
++	(void)mosq; (void)ud;
++	if (!msg->payload || msg->payloadlen == 0) return;
++
++	char payload[256];
++	int len = msg->payloadlen;
++	if (len > (int)sizeof(payload) - 1) len = (int)sizeof(payload) - 1;
++	memcpy(payload, msg->payload, len);
++	payload[len] = '\0';
++
++	const char *t = msg->topic;
++
++	if      (!strcmp(t, TOPIC_PREFIX "feed/amount/set"))   handle_feed_amount(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "feed/command"))      handle_feed_command(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "ir_led/set"))        handle_ir_led_set(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "ir_cut/set"))        handle_ir_cut_set(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "light_monitor/set")) handle_light_monitor_set(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "led/set"))           handle_main_led_set(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "mcu/sync_time"))     handle_sync_time(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "mcu/motor_test"))    handle_motor_test(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "schedule/refresh"))  handle_refresh_schedule(payload);
++	else if (!strcmp(t, TOPIC_PREFIX "schedule/clear_all")) handle_clear_all_schedules(payload);
++	else {
++		/* schedule/<N>/<field>/set */
++		int slot = -1;
++		char field[16];
++		if (sscanf(t, TOPIC_PREFIX "schedule/%d/%15[^/]/set",
++			   &slot, field) == 2) {
++			handle_schedule_set(slot, field, payload);
++		}
++	}
++}
++
++/* ------------------------------------------------------------------ */
++/* MCU frame dispatch                                                  */
++/* ------------------------------------------------------------------ */
++
++static void on_frame(const struct mcu_frame *f)
++{
++	switch (f->cmd) {
++	case 0x01:
++		/* ACK echoes byte 12 of TX. payload = 0x00 (manual) or slot (auto). */
++		log_info("catd: feed ack (slot=%u)\n", f->payload[0]);
++		if (g_feed_pending) {
++			/* The cmd=0x07 result frame is what marks completion;
++			 * the ACK alone just confirms the command was received. */
++		}
++		break;
++
++	case 0x07:   /* feed complete — normal food-present path */
++	case 0x15: { /* feed complete — IR-beam food-present sensor path.
++		      * Same 10-byte payload layout as 0x07; this firmware
++		      * reports manual-feed completion here, so without it the
++		      * feed never clears and always "times out". */
++		int dispensed = 0;
++		if (mcu_decode_feed_result(f, &dispensed) == 0) {
++			log_info("catd: feed result (cmd=0x%02x), weight=%d\n",
++				 f->cmd, dispensed);
++			publish_feed_result(dispensed, f->raw, f->raw_len);
++			publish_feed_status("complete");
++			g_feed_pending = 0;
++		}
++		break;
++	}
++
++	case 0x05:
++		/* Async error from a fired schedule. payload[0] = error code. */
++		log_err("catd: MCU async error code 0x%02x\n", f->payload[0]);
++		mqtt_publish(TOPIC_PREFIX "feed/status", "error", 1);
++		mqtt_publish(TOPIC_PREFIX "feed/error_code", "0x05", 0);
++		g_feed_pending = 0;
++		break;
++
++	case 0x0C:
++		/* Audio-state notification during scheduled feed; informational. */
++		log_info("catd: audio state 0x%02x\n", f->payload[0]);
++		break;
++
++	case 0x11: {
++		/* Chute-blocked sensor. The MCU emits FF FF 11 01 <state>
++		 * unsolicited whenever the chute switch toggles:
++		 *   payload 0x01 = blocked, 0x00 = clear.
++		 * It also fires this frame after a scheduled feed completes,
++		 * which makes sense as a "chute is clear of debris" check. */
++		int blocked = (f->payload[0] != 0);
++		if (blocked != g_chute_blocked) {
++			g_chute_blocked = blocked;
++			log_info("catd: chute %s\n", blocked ? "BLOCKED" : "clear");
++			mqtt_publish(TOPIC_PREFIX "chute/blocked",
++				     blocked ? "true" : "false", 1);
++		}
++		break;
++	}
++
++	case 0x09:
++	case 0x06: {
++		struct mcu_time t;
++		if (mcu_decode_time(f, &t) == 0) {
++			struct tm tm = {0};
++			tm.tm_year  = t.year - 1900;
++			tm.tm_mon   = t.month - 1;
++			tm.tm_mday  = t.day;
++			tm.tm_hour  = t.hour;
++			tm.tm_min   = t.minute;
++			tm.tm_sec   = t.second;
++			tm.tm_isdst = -1;
++			time_t mcu_unix = mktime(&tm);
++			int drift = (int)(time(NULL) - mcu_unix);
++			log_info("catd: MCU time %04d-%02d-%02d %02d:%02d:%02d (drift=%ds)\n",
++				 t.year, t.month, t.day, t.hour, t.minute, t.second, drift);
++			publish_mcu_time(mcu_unix, drift);
++			g_mcu_have_time = 1;
++		}
++		break;
++	}
++
++	case 0x0D: {
++		char ver[32];
++		if (mcu_decode_version(f, ver, sizeof(ver)) == 0) {
++			strncpy(g_mcu_version, ver, sizeof(g_mcu_version) - 1);
++			g_mcu_have_version = 1;
++			log_info("catd: MCU version: %s — publishing\n", g_mcu_version);
++			publish_mcu_version();
++		}
++		break;
++	}
++
++	case 0x02: {
++		struct mcu_slot s;
++		if (mcu_decode_slot(f, &s) == 0 &&
++		    s.slot_num >= 1 && s.slot_num <= NUM_MEAL_SLOTS) {
++			/* Convert MCU's raw weight (e.g. 20) to portions (1..10).
++			 * Round to nearest, clamp into the slider range so HA's
++			 * Number entity doesn't show out-of-range values. */
++			int portions = (s.weight + 5) / 10;
++			if (portions < 1)  portions = 1;
++			if (portions > 10) portions = 10;
++			s.weight = portions;
++			g_schedule[s.slot_num] = s;
++			publish_schedule_slot(s.slot_num);
++			state_save();
++			log_info("catd: schedule slot %d: %s %02d:%02d portions=%d en=%d\n",
++				 s.slot_num, slot_kind_str(s.kind),
++				 s.hour, s.minute, s.weight, s.enabled);
++		}
++		break;
++	}
++
++	case 0x0F:
++		log_info("catd: motor test result %02x %02x %02x\n",
++			 f->payload[0], f->payload[1], f->payload[2]);
++		break;
++
++	default:
++		log_info("catd: unknown frame cmd=0x%02x len=%u\n", f->cmd, f->len);
++		break;
++	}
++}
++
++/* ------------------------------------------------------------------ */
++/* Periodic tasks                                                      */
++/* ------------------------------------------------------------------ */
++
++/*
++ * Re-read the GPIOs that majestic also drives (IR LED + IR cut filter on
++ * its day/night transitions) so HA's switch state reflects reality. We
++ * only publish when the read value differs from our cached state.
++ */
++static void poll_gpio_states(void)
++{
++	int led = gpio_read(cfg.ir_led_gpio);
++	if (led >= 0 && led != g_ir_led_state) {
++		g_ir_led_state = led;
++		mqtt_publish(TOPIC_PREFIX "ir_led/state", led ? "ON" : "OFF", 1);
++		log_info("catd: IR LED changed externally → %s\n", led ? "ON" : "OFF");
++		state_save();
++	}
++
++	int cut = gpio_read(cfg.ir_cut_gpio);
++	if (cut >= 0 && cut != g_ir_cut_state) {
++		g_ir_cut_state = cut;
++		mqtt_publish(TOPIC_PREFIX "ir_cut/state", cut ? "ON" : "OFF", 1);
++		log_info("catd: IR cut changed externally → %s\n", cut ? "ON" : "OFF");
++		state_save();
++	}
++
++	if (cfg.main_led_gpio >= 0) {
++		int main_led = gpio_read(cfg.main_led_gpio);
++		if (main_led >= 0 && main_led != g_main_led_state) {
++			g_main_led_state = main_led;
++			mqtt_publish(TOPIC_PREFIX "led/state",
++				     main_led ? "ON" : "OFF", 1);
++			log_info("catd: main LED changed externally → %s\n",
++				 main_led ? "ON" : "OFF");
++			state_save();
++		}
++	}
++}
++
++static void periodic_tasks(void)
++{
++	time_t now = time(NULL);
++
++	poll_brightness();
++
++	/* Re-read GPIOs every 5 min so HA reflects majestic's day/night
++	 * transitions on the IR LED / IR cut filter. */
++	if (now - g_last_gpio_poll >= 300) {
++		poll_gpio_states();
++		g_last_gpio_poll = now;
++	}
++
++	/* Sync MCU clock every hour to bound long-term drift */
++	if (now - g_last_time_sync >= 3600) {
++		mcu_set_time_now();
++	}
++
++	/* Re-query MCU version/time every 30 s until we get them. The MCU
++	 * occasionally drops the first query if it's busy; this guarantees
++	 * the corresponding HA entities eventually populate. */
++	if ((!g_mcu_have_version || !g_mcu_have_time) &&
++	    now - g_last_mcu_query >= 30) {
++		if (!g_mcu_have_version) mcu_get_version();
++		if (!g_mcu_have_time)    mcu_get_time();
++		g_last_mcu_query = now;
++	}
++
++	/* Feed timeout */
++	if (g_feed_pending) {
++		int elapsed = (int)(now - g_feed_start);
++		int feed_timeout = 15 + g_feed_amount * 5;
++		if (elapsed >= feed_timeout) {
++			log_err("catd: feed timeout after %ds\n", elapsed);
++			publish_feed_status("timeout");
++			g_feed_pending = 0;
++		}
++	}
++}
++
++/* ------------------------------------------------------------------ */
++/* Signal handler                                                      */
++/* ------------------------------------------------------------------ */
++
++static void sig_handler(int sig)
++{
++	(void)sig;
++	g_running = 0;
++}
++
++static void usage(const char *prog)
++{
++	fprintf(stderr, "Usage: %s -c <config_file>\n", prog);
++	exit(1);
++}
++
++/* ------------------------------------------------------------------ */
++/* Main                                                                */
++/* ------------------------------------------------------------------ */
++
++int main(int argc, char **argv)
++{
++	const char *config_file = "/etc/catd.conf";
++
++	int opt;
++	while ((opt = getopt(argc, argv, "c:")) != -1) {
++		switch (opt) {
++		case 'c': config_file = optarg; break;
++		default:  usage(argv[0]);
++		}
++	}
++
++	openlog("catd", LOG_PID, LOG_DAEMON);
++
++	if (config_parse(config_file, &cfg) < 0) {
++		log_err("catd: failed to parse config %s\n", config_file);
++		return 1;
++	}
++
++	/* Apply timezone before any localtime()/mktime() call so MCU clock
++	 * pushes use wall-clock-of-record. OpenIPC defaults to UTC otherwise. */
++	if (cfg.timezone[0]) {
++		setenv("TZ", cfg.timezone, 1);
++		tzset();
++		log_info("catd: timezone set to %s\n", cfg.timezone);
++	}
++
++	resolve_media_urls(&cfg);
++
++	log_info("catd: device_id=%s broker=%s:%d uart=%s\n",
++		 cfg.device_id, cfg.broker_host, cfg.broker_port, cfg.uart_device);
++
++	signal(SIGINT, sig_handler);
++	signal(SIGTERM, sig_handler);
++
++	g_uart_fd = uart_open(cfg.uart_device);
++	if (g_uart_fd < 0) {
++		log_err("catd: failed to open UART %s\n", cfg.uart_device);
++		return 1;
++	}
++	log_info("catd: UART opened: %s\n", cfg.uart_device);
++
++	gpio_init_output(cfg.ir_led_gpio);
++	gpio_init_output(cfg.ir_cut_gpio);
++	if (cfg.main_led_gpio >= 0)
++		gpio_init_output(cfg.main_led_gpio);
++	log_info("catd: GPIO initialized: IR_LED=%d IR_CUT=%d LED=%d\n",
++		 cfg.ir_led_gpio, cfg.ir_cut_gpio, cfg.main_led_gpio);
++
++	/* Load saved state and restore the world to it. */
++	state_load();
++	gpio_write(cfg.ir_led_gpio, g_ir_led_state);
++	gpio_write(cfg.ir_cut_gpio, g_ir_cut_state);
++	if (cfg.main_led_gpio >= 0)
++		gpio_write(cfg.main_led_gpio, g_main_led_state);
++	mcu_push_saved_schedule();
++
++	mosquitto_lib_init();
++
++	g_mosq = mosquitto_new(cfg.device_id, true, NULL);
++	if (!g_mosq) {
++		log_err("catd: mosquitto_new failed\n");
++		return 1;
++	}
++
++	if (cfg.broker_user[0])
++		mosquitto_username_pw_set(g_mosq, cfg.broker_user,
++					 cfg.broker_pass[0] ? cfg.broker_pass : NULL);
++
++	mosquitto_will_set(g_mosq, TOPIC_PREFIX "status", 7, "offline", 1, true);
++
++	mosquitto_connect_callback_set(g_mosq, on_connect);
++	mosquitto_disconnect_callback_set(g_mosq, on_disconnect);
++	mosquitto_message_callback_set(g_mosq, on_message);
++
++	mosquitto_reconnect_delay_set(g_mosq, 5, 30, false);
++
++	int rc = mosquitto_connect(g_mosq, cfg.broker_host, cfg.broker_port, 60);
++	if (rc != MOSQ_ERR_SUCCESS) {
++		log_err("catd: MQTT connect to %s:%d failed: %s\n",
++			cfg.broker_host, cfg.broker_port, mosquitto_strerror(rc));
++	}
++
++	mosquitto_loop_start(g_mosq);
++
++	log_info("catd: entering main loop\n");
++
++	/* Push our time to the MCU on startup so subsequent schedules align */
++	mcu_set_time_now();
++
++	while (g_running) {
++		struct mcu_frame f;
++		int got = uart_recv_frame(g_uart_fd, &f, 5);
++
++		if (got == 1) {
++			on_frame(&f);
++		} else if (got < 0) {
++			/* parse error / drained noise — keep going */
++		}
++
++		periodic_tasks();
++	}
++
++	log_info("catd: shutting down\n");
++
++	mqtt_publish(TOPIC_PREFIX "status", "offline", 1);
++	usleep(200000);
++
++	/* Order matters: disconnect first so the network thread returns from its
++	 * socket wait. Calling mosquitto_loop_stop() first blocks forever trying
++	 * to join a thread that's still looping (or stuck in reconnect backoff) —
++	 * that deadlock is why SIGTERM didn't work and catd needed SIGKILL.
++	 * force=true cancels the thread if it's wedged mid-reconnect. */
++	mosquitto_disconnect(g_mosq);
++	mosquitto_loop_stop(g_mosq, true);
++	mosquitto_destroy(g_mosq);
++	mosquitto_lib_cleanup();
++
++	if (g_uart_fd >= 0) close(g_uart_fd);
++
++	gpio_cleanup(cfg.ir_led_gpio);
++	gpio_cleanup(cfg.ir_cut_gpio);
++	if (cfg.main_led_gpio >= 0)
++		gpio_cleanup(cfg.main_led_gpio);
++
++	closelog();
++	return 0;
++}
+diff --git a/general/package/catd/src/gpio.c b/general/package/catd/src/gpio.c
+new file mode 100644
+index 00000000..0ff51a33
+--- /dev/null
++++ b/general/package/catd/src/gpio.c
+@@ -0,0 +1,72 @@
++#include "gpio.h"
++
++#include <errno.h>
++#include <fcntl.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++
++static int write_file(const char *path, const char *val)
++{
++	int fd = open(path, O_WRONLY);
++	if (fd < 0) {
++		/* EBUSY on export means already exported — not an error */
++		if (errno == EBUSY)
++			return 0;
++		perror(path);
++		return -1;
++	}
++	ssize_t n = write(fd, val, strlen(val));
++	close(fd);
++	return (n < 0) ? -1 : 0;
++}
++
++int gpio_init_output(int gpio_num)
++{
++	char buf[64];
++
++	/* Export */
++	snprintf(buf, sizeof(buf), "%d", gpio_num);
++	write_file("/sys/class/gpio/export", buf);
++
++	/* Allow sysfs files to settle */
++	usleep(50000);
++
++	/* Direction */
++	snprintf(buf, sizeof(buf), "/sys/class/gpio/gpio%d/direction", gpio_num);
++	if (write_file(buf, "out") < 0)
++		return -1;
++
++	return 0;
++}
++
++int gpio_write(int gpio_num, int value)
++{
++	char path[64];
++	snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/value", gpio_num);
++	return write_file(path, value ? "1" : "0");
++}
++
++int gpio_read(int gpio_num)
++{
++	char path[64];
++	snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/value", gpio_num);
++
++	int fd = open(path, O_RDONLY);
++	if (fd < 0) {
++		perror(path);
++		return -1;
++	}
++
++	char c = '0';
++	read(fd, &c, 1);
++	close(fd);
++	return (c == '1') ? 1 : 0;
++}
++
++void gpio_cleanup(int gpio_num)
++{
++	char buf[16];
++	snprintf(buf, sizeof(buf), "%d", gpio_num);
++	write_file("/sys/class/gpio/unexport", buf);
++}
+diff --git a/general/package/catd/src/gpio.h b/general/package/catd/src/gpio.h
+new file mode 100644
+index 00000000..dc8d5fd6
+--- /dev/null
++++ b/general/package/catd/src/gpio.h
+@@ -0,0 +1,16 @@
++#ifndef CATD_GPIO_H
++#define CATD_GPIO_H
++
++/* Export a GPIO pin and set it as output. Returns 0 on success. */
++int gpio_init_output(int gpio_num);
++
++/* Write value (0 or 1) to an exported GPIO. Returns 0 on success. */
++int gpio_write(int gpio_num, int value);
++
++/* Read current value from an exported GPIO. Returns 0/1 or -1 on error. */
++int gpio_read(int gpio_num);
++
++/* Unexport a GPIO pin. */
++void gpio_cleanup(int gpio_num);
++
++#endif
+diff --git a/general/package/catd/src/uart.c b/general/package/catd/src/uart.c
+new file mode 100644
+index 00000000..da109856
+--- /dev/null
++++ b/general/package/catd/src/uart.c
+@@ -0,0 +1,347 @@
++/*
++ * MCU UART protocol implementation.
++ * See docs/MCU_PROTOCOL.md for the wire format.
++ */
++
++#include "uart.h"
++
++#include <errno.h>
++#include <fcntl.h>
++#include <signal.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/select.h>
++#include <termios.h>
++#include <time.h>
++#include <unistd.h>
++
++extern volatile sig_atomic_t g_running;
++
++/* ------------------------------------------------------------------ */
++/* Port management                                                     */
++/* ------------------------------------------------------------------ */
++
++int uart_open(const char *device)
++{
++	int fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY);
++	if (fd < 0) {
++		perror("uart: open");
++		return -1;
++	}
++	fcntl(fd, F_SETFL, 0); /* blocking */
++
++	struct termios tio;
++	tcgetattr(fd, &tio);
++
++	cfsetispeed(&tio, B115200);
++	cfsetospeed(&tio, B115200);
++
++	tio.c_cflag |= (CLOCAL | CREAD);
++	tio.c_cflag &= ~PARENB;
++	tio.c_cflag &= ~CSTOPB;
++	tio.c_cflag &= ~CSIZE;
++	tio.c_cflag |= CS8;
++
++	tio.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
++	tio.c_iflag &= ~(IXON | IXOFF | IXANY);
++	tio.c_oflag &= ~OPOST;
++
++	/* min=0 vtime=5 (0.5s inter-byte). Reads return whatever's available. */
++	tio.c_cc[VMIN]  = 0;
++	tio.c_cc[VTIME] = 5;
++
++	tcflush(fd, TCIFLUSH);
++	tcsetattr(fd, TCSANOW, &tio);
++
++	return fd;
++}
++
++/* ------------------------------------------------------------------ */
++/* Internal: blocking I/O with timeout                                 */
++/* ------------------------------------------------------------------ */
++
++static int wait_readable(int fd, int timeout_s)
++{
++	time_t deadline = time(NULL) + timeout_s;
++	int ret;
++
++	for (;;) {
++		int remaining = (int)(deadline - time(NULL));
++		if (remaining < 0)
++			remaining = 0;
++
++		fd_set rfds;
++		FD_ZERO(&rfds);
++		FD_SET(fd, &rfds);
++
++		struct timeval tv;
++		tv.tv_sec  = remaining;
++		tv.tv_usec = 0;
++
++		ret = select(fd + 1, &rfds, NULL, NULL, &tv);
++		if (ret >= 0 || errno != EINTR)
++			break;
++		if (!g_running)
++			return -1;
++	}
++	if (ret < 0)
++		perror("uart: select");
++	return ret;
++}
++
++static int read_bytes(int fd, uint8_t *buf, int n, int timeout_s)
++{
++	int total = 0;
++	time_t deadline = time(NULL) + timeout_s;
++
++	while (total < n) {
++		int remaining = (int)(deadline - time(NULL));
++		if (remaining <= 0)
++			break;
++
++		if (wait_readable(fd, remaining) <= 0)
++			break;
++
++		ssize_t r = read(fd, buf + total, n - total);
++		if (r > 0)
++			total += (int)r;
++		else if (r == 0)
++			break;
++		else if (errno != EINTR)
++			break;
++	}
++	return total;
++}
++
++static int write_all(int fd, const uint8_t *buf, int n)
++{
++	ssize_t w = write(fd, buf, n);
++	if (w != n) {
++		perror("uart: write");
++		return -1;
++	}
++	tcdrain(fd);
++	return 0;
++}
++
++/* ------------------------------------------------------------------ */
++/* TX commands                                                         */
++/* ------------------------------------------------------------------ */
++
++int uart_send_manual_feed(int fd, uint8_t weight)
++{
++	uint8_t pkt[14] = {
++		0xFF, 0xFF, 0x01, 0x0A,
++		0x3A, 0x09, 0x03, 0x0E, 0x0B,
++		weight,
++		0x00, 0x00, 0x00, 0x0A
++	};
++	return write_all(fd, pkt, sizeof(pkt));
++}
++
++int uart_send_auto_feed(int fd, int hour, int minute, int weight,
++			int audio_idx, int slot, int enabled)
++{
++	uint8_t pkt[14] = {
++		0xFF, 0xFF, 0x01, 0x0A,
++		0xA5, 0xA7, 0x7F,
++		(uint8_t)(hour & 0xFF),
++		(uint8_t)(minute & 0xFF),
++		(uint8_t)(weight & 0xFF),
++		(uint8_t)((weight >> 8) & 0xFF),
++		(uint8_t)(enabled ? 0x11 : 0x10),
++		(uint8_t)(slot & 0xFF),
++		(uint8_t)(audio_idx & 0xFF)
++	};
++	return write_all(fd, pkt, sizeof(pkt));
++}
++
++int uart_send_set_time(int fd, time_t when)
++{
++	struct tm tm;
++	localtime_r(&when, &tm);
++
++	uint8_t pkt[10] = {
++		0xFF, 0xFF, 0x06, 0x06,
++		(uint8_t)((tm.tm_year + 1900 - 1960) & 0xFF),  /* year - 1960 */
++		(uint8_t)((tm.tm_mon + 1) & 0xFF),             /* month 1..12 */
++		(uint8_t)(tm.tm_mday & 0xFF),
++		(uint8_t)(tm.tm_hour & 0xFF),
++		(uint8_t)(tm.tm_min & 0xFF),
++		(uint8_t)(tm.tm_sec & 0xFF)
++	};
++	return write_all(fd, pkt, sizeof(pkt));
++}
++
++int uart_send_get_time(int fd)
++{
++	uint8_t pkt[4] = { 0xFF, 0xFF, 0x09, 0x00 };
++	return write_all(fd, pkt, sizeof(pkt));
++}
++
++int uart_send_get_version(int fd)
++{
++	uint8_t pkt[4] = { 0xFF, 0xFF, 0x0D, 0x00 };
++	return write_all(fd, pkt, sizeof(pkt));
++}
++
++int uart_send_motor_test(int fd)
++{
++	uint8_t pkt[4] = { 0xFF, 0xFF, 0x0F, 0x00 };
++	return write_all(fd, pkt, sizeof(pkt));
++}
++
++int uart_send_read_schedule(int fd, int slot)
++{
++	uint8_t pkt[5] = { 0xFF, 0xFF, 0x02, 0x01, (uint8_t)(slot & 0xFF) };
++	return write_all(fd, pkt, sizeof(pkt));
++}
++
++/* ------------------------------------------------------------------ */
++/* RX framing                                                          */
++/* ------------------------------------------------------------------ */
++
++int uart_recv_frame(int fd, struct mcu_frame *out, int timeout_s)
++{
++	memset(out, 0, sizeof(*out));
++
++	time_t deadline = time(NULL) + timeout_s;
++
++	/* Hunt for SOF (FF + byte >= FC). Single-byte reads to resync on noise. */
++	uint8_t b = 0, prev = 0;
++	int have_prev = 0;
++	for (;;) {
++		int remaining = (int)(deadline - time(NULL));
++		if (remaining <= 0)
++			return 0;
++		if (wait_readable(fd, remaining) <= 0)
++			return 0;
++		if (read_bytes(fd, &b, 1, 1) != 1)
++			return 0;
++
++		if (have_prev && prev == 0xFF && b >= 0xFC) {
++			/* Found SOF */
++			out->raw[0] = 0xFF;
++			out->raw[1] = b;
++			out->raw_len = 2;
++			out->sof1 = b;
++			break;
++		}
++		prev = b;
++		have_prev = 1;
++	}
++
++	/* Read CMD + LEN */
++	uint8_t hdr[2];
++	if (read_bytes(fd, hdr, 2, 2) != 2)
++		return 0;
++	out->cmd = hdr[0];
++	out->len = hdr[1];
++	out->raw[2] = hdr[0];
++	out->raw[3] = hdr[1];
++	out->raw_len = 4;
++
++	if (out->len > MCU_MAX_PAYLOAD)
++		return -1;
++
++	if (out->len > 0) {
++		int got = read_bytes(fd, out->payload, out->len, 5);
++		if (got <= 0)
++			return 0;
++		memcpy(out->raw + 4, out->payload, got);
++		out->raw_len = 4 + got;
++		if (got != out->len)
++			return -1;
++	}
++
++	return 1;
++}
++
++/* ------------------------------------------------------------------ */
++/* Frame decoders                                                      */
++/* ------------------------------------------------------------------ */
++
++int mcu_decode_time(const struct mcu_frame *f, struct mcu_time *out)
++{
++	if ((f->cmd != 0x09 && f->cmd != 0x06) || f->len != 6)
++		return -1;
++	out->year   = (int)f->payload[0] + 1960;
++	out->month  = f->payload[1];
++	out->day    = f->payload[2];
++	out->hour   = f->payload[3];
++	out->minute = f->payload[4];
++	out->second = f->payload[5];
++	return 0;
++}
++
++int mcu_decode_slot(const struct mcu_frame *f, struct mcu_slot *out)
++{
++	if (f->cmd != 0x02 || f->len != 10)
++		return -1;
++
++	memset(out, 0, sizeof(*out));
++
++	const uint8_t *p = f->payload;
++
++	/* Auto-feed slot: A5 A7 7F HH MM WL WH EN SLOT AUDIO */
++	if (p[0] == 0xA5 && p[1] == 0xA7 && p[2] == 0x7F) {
++		out->kind      = MCU_SLOT_AUTOFEED;
++		out->hour      = p[3];
++		out->minute    = p[4];
++		out->weight    = p[5] | (p[6] << 8);
++		out->enabled   = (p[7] & 0x01) ? 1 : 0;  /* low bit of byte 11 */
++		out->slot_num  = p[8];
++		out->audio_idx = p[9];
++		return 0;
++	}
++
++	/* Recurring meal slot: 12 01 01 HH MM WL 00 EN MEAL_NUM 00 */
++	if (p[0] == 0x12 && p[1] == 0x01 && p[2] == 0x01) {
++		out->kind     = MCU_SLOT_MEAL;
++		out->hour     = p[3];
++		out->minute   = p[4];
++		out->weight   = p[5];
++		out->enabled  = (p[7] & 0x01) ? 1 : 0;
++		out->slot_num = p[8];
++		return 0;
++	}
++
++	/* Anything else: treat as empty/unrecognized. */
++	out->kind = MCU_SLOT_EMPTY;
++	return 0;
++}
++
++int mcu_decode_feed_result(const struct mcu_frame *f, int *weight)
++{
++	if ((f->cmd != 0x07 && f->cmd != 0x15) || f->len < 10)
++		return -1;
++	/*
++	 * Manual-feed result: payload[5]=commanded_weight, payload[7]=dispensed.
++	 * Auto-feed result echoes the entire TX payload — no separate dispensed
++	 * field. We report payload[5] (weight commanded/echoed) for both.
++	 */
++	if (weight) {
++		/* For manual-feed results, payload[7] carries the actual
++		 * dispensed weight (e.g. 0x20 = 32g). For auto-feed results,
++		 * payload[7] is part of the TX echo (0x11 or 0x00). Prefer
++		 * payload[7] when it differs from payload[5]; otherwise fall
++		 * back to payload[5]. */
++		if (f->payload[7] != 0 && f->payload[7] != 0x11)
++			*weight = f->payload[7];
++		else
++			*weight = f->payload[5];
++	}
++	return 0;
++}
++
++int mcu_decode_version(const struct mcu_frame *f, char *out, size_t out_sz)
++{
++	if (f->cmd != 0x0D || f->len == 0 || out_sz == 0)
++		return -1;
++	size_t n = f->len;
++	if (n > out_sz - 1)
++		n = out_sz - 1;
++	memcpy(out, f->payload, n);
++	out[n] = '\0';
++	return 0;
++}
+diff --git a/general/package/catd/src/uart.h b/general/package/catd/src/uart.h
+new file mode 100644
+index 00000000..dbf4afcc
+--- /dev/null
++++ b/general/package/catd/src/uart.h
+@@ -0,0 +1,127 @@
++#ifndef CATD_UART_H
++#define CATD_UART_H
++
++#include <stdint.h>
++#include <time.h>
++
++/*
++ * Wire protocol per docs/MCU_PROTOCOL.md.
++ *
++ * All frames: FF FX <cmd> <len> <payload...>  where SOF1 is FC..FF and
++ * the total frame size is len+4.
++ */
++
++#define MCU_MAX_PAYLOAD 20  /* host RX buffer cap is 24 bytes total */
++
++/* RX frame parsed from the wire. */
++struct mcu_frame {
++	uint8_t  sof1;                          /* second SOF byte (FC..FF) */
++	uint8_t  cmd;
++	uint8_t  len;
++	uint8_t  payload[MCU_MAX_PAYLOAD];
++	uint8_t  raw[MCU_MAX_PAYLOAD + 4];      /* full frame including SOF/cmd/len */
++	int      raw_len;
++};
++
++/* Decoded MCU clock from cmd=0x09 / 0x06 frames. */
++struct mcu_time {
++	int year;     /* full year (e.g. 2026) */
++	int month;    /* 1..12 */
++	int day;      /* 1..31 */
++	int hour;     /* 0..23 */
++	int minute;   /* 0..59 */
++	int second;   /* 0..59 */
++};
++
++/* Decoded schedule slot record from cmd=0x02 read response. */
++enum mcu_slot_kind {
++	MCU_SLOT_EMPTY = 0,        /* uninitialized / disabled / unrecognized */
++	MCU_SLOT_AUTOFEED,         /* one-shot auto-feed (A5 A7 7F marker) */
++	MCU_SLOT_MEAL,             /* recurring meal slot (12 01 01 marker) */
++};
++
++struct mcu_slot {
++	enum mcu_slot_kind kind;
++	int     slot_num;          /* 1..8 */
++	int     hour;              /* 0..23 */
++	int     minute;            /* 0..59 */
++	int     weight;            /* 0..65535 (LE16 for autofeed; uint8 for meal) */
++	int     enabled;           /* 1 if low bit of enable byte is set */
++	int     audio_idx;         /* autofeed only */
++};
++
++/* ------------------------------------------------------------------ */
++/* Port management                                                     */
++/* ------------------------------------------------------------------ */
++
++/* Open and configure UART at 115200 8N1 raw mode. Returns fd or -1. */
++int uart_open(const char *device);
++
++/* ------------------------------------------------------------------ */
++/* TX commands — all return 0 on success, -1 on write error            */
++/* ------------------------------------------------------------------ */
++
++/* Manual one-shot feed at given weight (10..255). */
++int uart_send_manual_feed(int fd, uint8_t weight);
++
++/*
++ * Schedule a daily-recurring auto-feed for HH:MM in the MCU's clock frame.
++ * Fires every day at HH:MM until the slot is overwritten or disabled.
++ * - weight: minimum 10; values <10 cause MCU red error LED at fire.
++ * - audio_idx: 0 = silent. Non-zero references a preloaded sound file.
++ * - slot: 1..6 — must be non-zero or the MCU silently rejects.
++ * - enabled: 1 = active (byte 11 = 0x11), 0 = disabled (byte 11 = 0x10).
++ * The schedule replaces whatever was in `slot` previously.
++ */
++int uart_send_auto_feed(int fd, int hour, int minute, int weight,
++			int audio_idx, int slot, int enabled);
++
++/* Set MCU clock from a host time_t (uses localtime()). */
++int uart_send_set_time(int fd, time_t when);
++
++/* Query MCU time (response: cmd=0x09). */
++int uart_send_get_time(int fd);
++
++/* Query MCU firmware version (response: cmd=0x0D, ASCII). */
++int uart_send_get_version(int fd);
++
++/* Trigger MCU motor self-test (response: cmd=0x0F). */
++int uart_send_motor_test(int fd);
++
++/*
++ * Read a schedule slot.
++ * slot=0 → "dump all" (MCU emits one cmd=0x02 frame per slot).
++ * slot=1..8 → just that slot.
++ */
++int uart_send_read_schedule(int fd, int slot);
++
++/* ------------------------------------------------------------------ */
++/* RX                                                                  */
++/* ------------------------------------------------------------------ */
++
++/*
++ * Receive one frame with a per-call timeout (seconds).
++ * Returns 1 on a parsed frame, 0 on timeout, -1 on error.
++ *
++ * Resyncs on noise: hunts for SOF (FF + byte >= FC), validates LEN,
++ * accumulates LEN bytes of payload.
++ */
++int uart_recv_frame(int fd, struct mcu_frame *out, int timeout_s);
++
++/* ------------------------------------------------------------------ */
++/* Frame decoders — return 0 on success, -1 if frame doesn't match     */
++/* ------------------------------------------------------------------ */
++
++/* Decode a cmd=0x09 (or cmd=0x06) time frame into mcu_time. */
++int mcu_decode_time(const struct mcu_frame *f, struct mcu_time *out);
++
++/* Decode a cmd=0x02 schedule-slot read response into mcu_slot. */
++int mcu_decode_slot(const struct mcu_frame *f, struct mcu_slot *out);
++
++/* Decode a cmd=0x07/0x15 feed-result frame; returns dispensed weight via *weight. */
++int mcu_decode_feed_result(const struct mcu_frame *f, int *weight);
++
++/* Decode a cmd=0x0D firmware version string; null-terminates into out[]. */
++int mcu_decode_version(const struct mcu_frame *f, char *out, size_t out_sz);
++
++#endif

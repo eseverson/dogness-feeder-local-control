@@ -1,0 +1,1282 @@
+diff --git a/general/overlay/etc/TZ b/general/overlay/etc/TZ
+index f89f9010..3e9dcf39 100644
+--- a/general/overlay/etc/TZ
++++ b/general/overlay/etc/TZ
+@@ -1 +1 @@
+-GMT0
++PST8PDT,M3.2.0,M11.1.0
+diff --git a/general/overlay/etc/dropbear.keys b/general/overlay/etc/dropbear.keys
+new file mode 100644
+index 00000000..985b88aa
+--- /dev/null
++++ b/general/overlay/etc/dropbear.keys
+@@ -0,0 +1 @@
++ssh-ed25519 REDACTED-PUBLIC-KEY
+diff --git a/general/overlay/etc/dropbear/.empty b/general/overlay/etc/dropbear/.empty
+deleted file mode 100644
+index e69de29b..00000000
+diff --git a/general/overlay/etc/fw_env.config b/general/overlay/etc/fw_env.config
+new file mode 100644
+index 00000000..e4baa36e
+--- /dev/null
++++ b/general/overlay/etc/fw_env.config
+@@ -0,0 +1,8 @@
++# fw_printenv / fw_setenv config — points at the U-Boot environment.
++#
++# Layout: env lives inside the boot mtd partition (mtd0, 320KB), at
++# offset 0x40000-0x50000 (matches CONFIG_ENV_OFFSET / CONFIG_ENV_SIZE
++# in include/configs/hi-common.h).
++#
++# Format: <device>  <offset>  <env-size>  <flash-erase-size>  [<n-sectors>]
++/dev/mtd0	0x40000	0x10000	0x10000
+diff --git a/general/overlay/etc/hostname b/general/overlay/etc/hostname
+new file mode 100644
+index 00000000..56d4183b
+--- /dev/null
++++ b/general/overlay/etc/hostname
+@@ -0,0 +1 @@
++openipc-hi3518ev200
+diff --git a/general/overlay/etc/init.d/S01syslogd b/general/overlay/etc/init.d/S01syslogd
+index 706c5bf7..ab25e3b9 100755
+--- a/general/overlay/etc/init.d/S01syslogd
++++ b/general/overlay/etc/init.d/S01syslogd
+@@ -2,7 +2,7 @@
+ 
+ DAEMON="syslogd"
+ PIDFILE="/var/run/$DAEMON.pid"
+-DAEMON_ARGS="-n -C64 -t"
++DAEMON_ARGS="-n -C256 -t"
+ 
+ start() {
+ 	echo -n "Starting $DAEMON: "
+diff --git a/general/overlay/etc/init.d/S36pinmux b/general/overlay/etc/init.d/S36pinmux
+new file mode 100755
+index 00000000..a9479ae9
+--- /dev/null
++++ b/general/overlay/etc/init.d/S36pinmux
+@@ -0,0 +1,42 @@
++#!/bin/sh
++# Configure Hi3518EV200 pin mux registers.
++#
++# sys_config.ko does this for known sensors (ar0130, ov9712, etc.) but
++# skips the full pinmux block when it gets an unrecognised sensor name
++# like jxh62. Write the registers directly here so they are always set.
++#
++# Register base: 0x200f0000  Stride: 4 bytes per pin (pinctrl-single)
++# Value 0 = first function (often GPIO), 1 = first alternate, 2 = second...
++#
++# Sources:
++#   - Hi3518 DataSheet (HiSilicon, 2013-02-05), section 2 Hardware
++#   - Disassembly of pinmux_hi3518e() in sys_config.ko (pin_mux_select=0)
++#   - Hi3518EV20x.dtsi gpio-ranges cross-reference
++
++case "$1" in
++    start)
++        # UART2 — MCU communication (STC15W408AS)
++        # Pin 51 (IOCFG 0xCC) = UART2_TXD at mux=3
++        # Pin 52 (IOCFG 0xD0) = UART2_RXD at mux=3
++        # Confirmed by dumping original firmware IOCFG register state.
++        # 0x020-0x02C are RMII Ethernet on EV200, NOT UART1 as V100 datasheet suggests.
++        devmem 0x200f00cc 32 3
++        devmem 0x200f00d0 32 3
++
++        # Platform bus pins set by sys_config.ko pin_mux_select=0 for all
++        # known sensors (reg4-7 and reg13-15 — exact functions vary by board)
++        devmem 0x200f0010 32 1
++        devmem 0x200f0014 32 1
++        devmem 0x200f0018 32 1
++        devmem 0x200f001c 32 1
++        devmem 0x200f0034 32 1
++        devmem 0x200f0038 32 1
++        devmem 0x200f003c 32 1
++        ;;
++    stop)
++        ;;
++    *)
++        echo "Usage: $0 {start|stop}"
++        exit 1
++        ;;
++esac
+diff --git a/general/overlay/etc/init.d/S40network b/general/overlay/etc/init.d/S40network
+index b8fd1093..68720a87 100755
+--- a/general/overlay/etc/init.d/S40network
++++ b/general/overlay/etc/init.d/S40network
+@@ -1,5 +1,6 @@
+ #!/bin/sh
+-dev=$(fw_printenv -n wlandev)
++dev=$(fw_printenv -n wlandev 2>/dev/null)
++dev=${dev:-rtl8188fu-hi3518ev200-dogness}
+ mac=$(fw_printenv -n wlanmac)
+ net=$(fw_printenv -n netaddr_fallback)
+ eth=$(fw_printenv -n ethaddr)
+@@ -13,7 +14,6 @@ set_wireless() {
+ 		ifup usb0
+ 		ifup eth1
+ 	fi
+-	[ -e /sys/class/net/eth0 ] && ifconfig eth0 "${net:-192.168.2.10}" hw ether "${eth:-00:00:23:34:45:66}" up
+ }
+ 
+ start() {
+diff --git a/general/overlay/etc/init.d/S50dropbear b/general/overlay/etc/init.d/S50dropbear
+index 25b4acaf..bafe8151 100755
+--- a/general/overlay/etc/init.d/S50dropbear
++++ b/general/overlay/etc/init.d/S50dropbear
+@@ -7,6 +7,20 @@ DAEMON_ARGS="-R -B -k -p 22 -K 300"
+ start() {
+ 	echo -n "Starting $DAEMON: "
+ 	umask 077
++
++	# /etc/dropbear -> /var/run/dropbear (tmpfs, empty on boot).
++	# Copy baked-in host keys from /etc/dropbear.keys.d/ so the
++	# SSH fingerprint is stable across reflashes.
++	mkdir -p /var/run/dropbear
++	if [ -d /etc/dropbear.keys.d ]; then
++		cp /etc/dropbear.keys.d/dropbear_*_host_key /var/run/dropbear/ 2>/dev/null
++	fi
++	# Authorized user keys (root logs in via /root/.ssh -> /etc/dropbear -> here)
++	if [ -f /etc/dropbear.keys ]; then
++		cp /etc/dropbear.keys /var/run/dropbear/authorized_keys
++		chmod 600 /var/run/dropbear/authorized_keys
++	fi
++
+ 	start-stop-daemon -S -q -p "$PIDFILE" -x "$DAEMON" -- $DAEMON_ARGS
+ 	if [ $? -eq 0 ]; then
+ 		echo "OK"
+diff --git a/general/overlay/etc/init.d/S50mosquitto b/general/overlay/etc/init.d/S50mosquitto
+new file mode 100755
+index 00000000..6ae979ed
+--- /dev/null
++++ b/general/overlay/etc/init.d/S50mosquitto
+@@ -0,0 +1,3 @@
++#!/bin/sh
++# Disabled — using HA broker instead of local mosquitto
++exit 0
+diff --git a/general/overlay/etc/init.d/S95majestic b/general/overlay/etc/init.d/S95majestic
+new file mode 100755
+index 00000000..3ecd3fe9
+--- /dev/null
++++ b/general/overlay/etc/init.d/S95majestic
+@@ -0,0 +1,5 @@
++#!/bin/sh
++case "$1" in
++    start) ;;
++    stop) killall majestic 2>/dev/null ;;
++esac
+diff --git a/general/overlay/etc/init.d/S99healthy b/general/overlay/etc/init.d/S99healthy
+new file mode 100755
+index 00000000..5d1339d2
+--- /dev/null
++++ b/general/overlay/etc/init.d/S99healthy
+@@ -0,0 +1,24 @@
++#!/bin/sh
++# Reset U-Boot bootcount to 0 once main has booted far enough to be healthy.
++#
++# U-Boot's boot_with_count env script increments bootcount on every boot and
++# falls through to bootcmdrec once it exceeds bootlimit. This script is the
++# "boot succeeded" signal: if we get here, the kernel + rootfs + init came
++# up successfully, so reset the counter.
++#
++# Runs in the background with a small delay so we don't block init and so
++# the system has a chance to fail (panic, dropbear crash on bad config, etc.)
++# before we declare victory.
++
++case "$1" in
++    start)
++        (
++            sleep 30
++            current=$(fw_printenv -n bootcount 2>/dev/null)
++            if [ "$current" != "0" ]; then
++                fw_setenv bootcount 0
++            fi
++        ) &
++        ;;
++    stop|restart|reload) ;;
++esac
+diff --git a/general/overlay/etc/init.d/rcS b/general/overlay/etc/init.d/rcS
+index e6456301..7baa50bf 100755
+--- a/general/overlay/etc/init.d/rcS
++++ b/general/overlay/etc/init.d/rcS
+@@ -3,6 +3,35 @@ export SENSOR=$(fw_printenv -n sensor)
+ export UPGRADE=$(fw_printenv -n upgrade)
+ export TZ=$(cat /etc/TZ)
+ 
++# ── Safe-mode check ──────────────────────────────────────────────────────
++# boot_ok is stored in U-Boot env.  Values:
++#   1 = last boot completed (normal boot)
++#   0 = upgrade pending or previous boot failed (safe mode)
++#   <unset> = fresh device, treat as normal
++BOOT_OK=$(fw_printenv -n boot_ok 2>/dev/null)
++
++if [ "$BOOT_OK" = "0" ]; then
++	echo "*** SAFE MODE — previous boot did not complete ***"
++	echo "*** Starting minimal system: modules + network + SSH ***"
++
++	# Run only what's needed for remote access
++	for s in S01syslogd S35modules S36pinmux S38mdev S40network S50dropbear; do
++		i="/etc/init.d/$s"
++		[ -f "$i" ] && $i start
++	done
++
++	echo ""
++	echo "*** SAFE MODE active.  SSH should be available. ***"
++	echo "***   To commit:  fw_setenv boot_ok 1 && reboot  ***"
++	echo "***   To reflash: sysupgrade.sh <url>             ***"
++	exit 0
++fi
++
++# ── Normal boot ──────────────────────────────────────────────────────────
++# Mark boot as not-yet-complete.  If we crash before the end of init,
++# the next reboot enters safe mode.
++fw_setenv boot_ok 0 2>/dev/null
++
+ for i in /etc/init.d/S??*; do
+ 	[ ! -f "$i" ] && continue
+ 	case "$i" in
+@@ -11,3 +40,7 @@ for i in /etc/init.d/S??*; do
+ 			;;
+ 	esac
+ done
++
++# All init scripts succeeded — mark boot as good.
++fw_setenv boot_ok 1 2>/dev/null
++echo "Boot complete, boot_ok committed."
+diff --git a/general/overlay/etc/majestic.yaml b/general/overlay/etc/majestic.yaml
+new file mode 100644
+index 00000000..e655ab74
+--- /dev/null
++++ b/general/overlay/etc/majestic.yaml
+@@ -0,0 +1,73 @@
++system:
++  webPort: 80
++  httpsPort: 443
++  logLevel: debug
++  telemetry: false
++isp:
++  sensorConfig: /etc/sensors/jxh62_i2c_mipi_720p.ini
++  antiFlicker: disabled
++image:
++  mirror: false
++  flip: false
++  rotate: 0
++  contrast: 50
++  hue: 50
++  saturation: 50
++  luminance: 50
++video0:
++  enabled: true
++  codec: h264
++  fps: 20
++  bitrate: 4096
++  rcMode: vbr
++  gopSize: 1
++video1:
++  enabled: false
++  codec: h264
++  size: 704x576
++  fps: 15
++jpeg:
++  enabled: true
++  qfactor: 50
++  fps: 5
++osd:
++  enabled: false
++  font: /usr/share/fonts/truetype/UbuntuMono-Regular.ttf
++  template: '%d.%m.%Y %H:%M:%S'
++  posX: 16
++  posY: 16
++audio:
++  enabled: true
++  volume: 30
++  srate: 8000
++  codec: opus
++  outputEnabled: true
++  outputVolume: 30
++rtsp:
++  enabled: true
++  port: 554
++nightMode:
++  colorToGray: true
++  irCutPin1: 37
++  irCutSingleInvert: false
++  backlightPin: 0
++  lightMonitor: true
++  lightSensorInvert: false
++  maxThreshold: 10000
++  minThreshold: 4000
++motionDetect:
++  enabled: false
++  visualize: false
++  debug: false
++records:
++  enabled: false
++  path: /mnt/mmcblk0p1/%F
++  split: 20
++  maxUsage: 95
++outgoing:
++  enabled: false
++watchdog:
++  enabled: true
++  timeout: 300
++hls:
++  enabled: false
+diff --git a/general/overlay/etc/network/interfaces.d/wlan0 b/general/overlay/etc/network/interfaces.d/wlan0
+index 7bce98b9..dd256a90 100644
+--- a/general/overlay/etc/network/interfaces.d/wlan0
++++ b/general/overlay/etc/network/interfaces.d/wlan0
+@@ -1,5 +1,6 @@
+ iface wlan0 inet dhcp
+-    pre-up wpa_passphrase "$(fw_printenv -n wlanssid)" "$(fw_printenv -n wlanpass)" > /tmp/wpa_supplicant.conf
+-    pre-up sed -i 's/#psk.*/scan_ssid=1/g' /tmp/wpa_supplicant.conf
++    pre-up wpa_passphrase "YOUR_SSID" "YOUR_WIFI_PASSWORD" > /tmp/wpa_supplicant.conf
++    pre-up sed -i 's/#psk.*/scan_ssid=1/' /tmp/wpa_supplicant.conf
+     pre-up wpa_supplicant -B -i wlan0 -D nl80211,wext -c /tmp/wpa_supplicant.conf
++    pre-up for i in $(seq 1 20); do sleep 1; [ "$(cat /sys/class/net/wlan0/carrier 2>/dev/null)" = "1" ] && break; done; true
+     post-down killall -q wpa_supplicant
+diff --git a/general/overlay/etc/openipc_donors b/general/overlay/etc/openipc_donors
+deleted file mode 100644
+index 5d42de00..00000000
+--- a/general/overlay/etc/openipc_donors
++++ /dev/null
+@@ -1,8 +0,0 @@
+- Please help the OpenIPC Project to cover the cost of development and
+- long-term maintenance of what we believe is going to become a stable,
+- flexible Open IP Network Camera Framework for users worldwide.
+-
+- Your contributions could help us to advance the development and keep
+- you updated on improvements and new features more regularly.
+-
+- Please visit https://openipc.org/sponsor/ to learn more. Thank you.
+diff --git a/general/overlay/etc/profile b/general/overlay/etc/profile
+index 822589e7..31443a33 100644
+--- a/general/overlay/etc/profile
++++ b/general/overlay/etc/profile
+@@ -10,10 +10,6 @@ echo_c() {
+ }
+ 
+ if [ "$PS1" ]; then
+-	[ -f /etc/os-release ] && . /etc/os-release
+-	[ -f /etc/openipc_banner ] && echo_c 34 "\n$(cat /etc/openipc_banner)"
+-	echo_c 32 "$(printf %51s "$GITHUB_VERSION")"
+-	[ -f /etc/openipc_donors ] && echo_c 37 "\n\n$(cat /etc/openipc_donors)\n\n"
+ 	if [ "$(id -u)" -eq 0 ]; then
+ 		export PS1='\u@\h:\w\# '
+ 	else
+diff --git a/general/overlay/etc/rc.local b/general/overlay/etc/rc.local
+index 1426ecbb..b27e727e 100755
+--- a/general/overlay/etc/rc.local
++++ b/general/overlay/etc/rc.local
+@@ -1,14 +1,42 @@
+ #!/bin/sh
+-#
+-# rc.local
+-#
+-# This script is executed at the end of each multiuser runlevel.
+-# Make sure that the script will "exit 0" on success or any other
+-# value on error.
+-#
+-# In order to enable or disable this script just change the execution
+-# bits.
+-#
+-# By default this script does nothing.
++
++# Install authorized SSH keys
++mkdir -p /root/.ssh
++cp /etc/dropbear.keys /root/.ssh/authorized_keys
++chmod 700 /root/.ssh
++chmod 600 /root/.ssh/authorized_keys
++
++# Run majestic with respawn; re-apply MIPI sensor register tweaks after each
++# (re)start since the sensor driver re-initializes default registers each time.
++# Crash output is appended to /tmp/majestic.log (tmpfs — resets on reboot).
++(
++    while true; do
++        rm -f /var/run/majestic.pid
++        majestic -s >>/tmp/majestic.log 2>&1 &
++        MJPID=$!
++
++        sleep 5
++        if kill -0 "$MJPID" 2>/dev/null; then
++            I=0x60
++            ipctool i2cset $I 0x1d 0x00; ipctool i2cset $I 0x1e 0x00
++            ipctool i2cset $I 0x0f 0x09; ipctool i2cset $I 0x10 0x24
++            ipctool i2cset $I 0x20 0x80; ipctool i2cset $I 0x21 0x07
++            ipctool i2cset $I 0x27 0x94; ipctool i2cset $I 0x2a 0x43
++            ipctool i2cset $I 0x30 0x98; ipctool i2cset $I 0x31 0x0e
++            ipctool i2cset $I 0x32 0xf0; ipctool i2cset $I 0x33 0x4e
++            ipctool i2cset $I 0x34 0x2c; ipctool i2cset $I 0x38 0x40
++            ipctool i2cset $I 0x68 0x00; ipctool i2cset $I 0x6a 0x1f
++            ipctool i2cset $I 0x70 0x89; ipctool i2cset $I 0x71 0x4a
++            ipctool i2cset $I 0x72 0x48; ipctool i2cset $I 0x73 0x43
++            ipctool i2cset $I 0x74 0x52; ipctool i2cset $I 0x75 0x2b
++            ipctool i2cset $I 0x76 0x40; ipctool i2cset $I 0x77 0x06
++            ipctool i2cset $I 0x78 0x20; ipctool i2cset $I 0x7a 0x48
++            ipctool i2cset $I 0x7b 0x03; ipctool i2cset $I 0x12 0x00
++        fi
++
++        wait "$MJPID"
++        sleep 2
++    done
++) &
+ 
+ exit 0
+diff --git a/general/overlay/etc/shadow b/general/overlay/etc/shadow
+index 81ad3cd3..32ff1f9b 100644
+--- a/general/overlay/etc/shadow
++++ b/general/overlay/etc/shadow
+@@ -1,4 +1,4 @@
+-root:$1$jv4d1NpW$PpH6Xd79JR1JkUDLMJLch1:19477::::::
++root:REDACTED:19477::::::
+ daemon:*:::::::
+ bin:*:::::::
+ sys:*:::::::
+diff --git a/general/overlay/etc/shadow- b/general/overlay/etc/shadow-
+new file mode 100644
+index 00000000..32ff1f9b
+--- /dev/null
++++ b/general/overlay/etc/shadow-
+@@ -0,0 +1,9 @@
++root:REDACTED:19477::::::
++daemon:*:::::::
++bin:*:::::::
++sys:*:::::::
++sync:*:::::::
++mail:*:::::::
++www-data:*:::::::
++operator:*:::::::
++nobody:*:::::::
+diff --git a/general/overlay/etc/wireless/usb b/general/overlay/etc/wireless/usb
+index f9df96bc..75d68824 100755
+--- a/general/overlay/etc/wireless/usb
++++ b/general/overlay/etc/wireless/usb
+@@ -156,6 +156,13 @@ if [ "$1" = "rtl8188eus-switcam-hs303v2" ]; then
+ 	exit 0
+ fi
+ 
++# HI3518EV200 Dogness/Wopet pet feeder (RTL8188FTV)
++if [ "$1" = "rtl8188fu-hi3518ev200-dogness" ]; then
++	set_gpio 38 0
++	modprobe 8188fu
++	exit 0
++fi
++
+ # HI3518EV300 Unknown1
+ if [ "$1" = "rtl8188fu-hi3518ev300-unknown1" ]; then
+ 	set_gpio 57 0
+diff --git a/general/overlay/usr/sbin/origfw-dump.sh b/general/overlay/usr/sbin/origfw-dump.sh
+new file mode 100644
+index 00000000..b4b5bf9e
+--- /dev/null
++++ b/general/overlay/usr/sbin/origfw-dump.sh
+@@ -0,0 +1,120 @@
++#!/bin/sh
++# origfw-dump.sh — Run on ORIGINAL firmware to capture full register state
++# Transfer this script to the device and run before/after IPServer starts
++#
++# Usage:
++#   origfw-dump.sh boot    — run at boot before IPServer (from serial console)
++#   origfw-dump.sh running — run while IPServer is communicating with MCU
++#   origfw-dump.sh feed    — run, then trigger a feed, captures interrupt counts
++
++OUT="/tmp/origfw-${1:-boot}.log"
++
++log() {
++    echo "$@"
++    echo "$@" >> "$OUT"
++}
++
++log "=== Original FW Register Dump — mode=${1:-boot} — $(date) ==="
++log ""
++
++# ---------------------------------------------------------------
++# ALL 66 IOCFG registers (0x000-0x104)
++# ---------------------------------------------------------------
++log "--- IOCFG 0x200f0000: ALL registers (0x000-0x108) ---"
++log "Offset  Value     Pin  Notes"
++off=0
++while [ $off -le 264 ]; do
++    hex=$(printf '0x%03x' $off)
++    addr=$(printf '0x%x' $((0x200f0000 + off)))
++    val=$(devmem "$addr" 32)
++    pin=$((off / 4))
++    log "  $hex    $val   pin$pin"
++    off=$((off + 4))
++done
++log ""
++
++# ---------------------------------------------------------------
++# CRG clock/reset registers
++# ---------------------------------------------------------------
++log "--- CRG Registers ---"
++for r in 0xe0 0xe4 0xe8 0xec; do
++    addr=$(printf '0x%x' $((0x20030000 + r)))
++    val=$(devmem "$addr" 32)
++    log "  $addr = $val"
++done
++log ""
++
++# ---------------------------------------------------------------
++# PL011 UART1 (0x20090000) full register set
++# ---------------------------------------------------------------
++log "--- PL011 UART1 (0x20090000) ---"
++for r in 0x00 0x04 0x18 0x24 0x28 0x2c 0x30 0x34 0x38 0x3c 0x44 0x48; do
++    addr=$(printf '0x%x' $((0x20090000 + r)))
++    val=$(devmem "$addr" 32)
++    log "  $addr = $val"
++done
++log ""
++
++# ---------------------------------------------------------------
++# PL011 UART2 (0x200a0000) full register set
++# ---------------------------------------------------------------
++log "--- PL011 UART2 (0x200a0000) ---"
++for r in 0x00 0x04 0x18 0x24 0x28 0x2c 0x30 0x34 0x38 0x3c 0x44 0x48; do
++    addr=$(printf '0x%x' $((0x200a0000 + r)))
++    val=$(devmem "$addr" 32)
++    log "  $addr = $val"
++done
++log ""
++
++# ---------------------------------------------------------------
++# GPIO controller registers for GPIO6 (pins 48-55)
++# ---------------------------------------------------------------
++log "--- GPIO6 (0x206f0000) — covers pins 48-55 ---"
++for r in 0x000 0x3fc 0x400 0x404 0x408 0x410; do
++    addr=$(printf '0x%x' $((0x206f0000 + r)))
++    val=$(devmem "$addr" 32)
++    log "  $addr = $val"
++done
++log ""
++
++# Also GPIO5 for reference
++log "--- GPIO5 (0x206e0000) — covers pins 40-47 ---"
++for r in 0x000 0x3fc 0x400 0x404 0x408 0x410; do
++    addr=$(printf '0x%x' $((0x206e0000 + r)))
++    val=$(devmem "$addr" 32)
++    log "  $addr = $val"
++done
++log ""
++
++# ---------------------------------------------------------------
++# Interrupt state
++# ---------------------------------------------------------------
++log "--- /proc/interrupts ---"
++cat /proc/interrupts >> "$OUT" 2>&1
++log ""
++
++# ---------------------------------------------------------------
++# Process list (to see if IPServer is running)
++# ---------------------------------------------------------------
++log "--- Processes ---"
++ps | grep -i "ipserver\|ipc\|uart\|serial\|jiake" >> "$OUT" 2>&1
++log ""
++
++# ---------------------------------------------------------------
++# Open file descriptors on ttyAMA*
++# ---------------------------------------------------------------
++log "--- Open ttyAMA fds ---"
++ls -la /proc/*/fd 2>/dev/null | grep ttyAMA >> "$OUT" 2>&1
++# Also check via fuser if available
++fuser /dev/ttyAMA1 /dev/ttyAMA2 2>&1 | while read line; do log "  $line"; done
++log ""
++
++# ---------------------------------------------------------------
++# dmesg UART related
++# ---------------------------------------------------------------
++log "--- dmesg (UART/serial) ---"
++dmesg 2>/dev/null | grep -i "ttyAMA\|uart\|pl011\|serial" >> "$OUT" 2>&1
++log ""
++
++log "Done. Output saved to $OUT"
++log "Transfer with: cat $OUT  (over serial) or save to SD"
+diff --git a/general/overlay/usr/sbin/sysupgrade.sh b/general/overlay/usr/sbin/sysupgrade.sh
+new file mode 100755
+index 00000000..a73a7f48
+--- /dev/null
++++ b/general/overlay/usr/sbin/sysupgrade.sh
+@@ -0,0 +1,198 @@
++#!/bin/sh
++# sysupgrade.sh — safe on-device rootfs upgrade
++#
++# Downloads a rootfs image, validates it thoroughly, then spawns a
++# detached flash process that is immune to SSH disconnection.  Works
++# with the safe-mode system in rcS: if the new rootfs doesn't boot
++# properly, the next reboot enters safe mode (WiFi + SSH only) so you
++# can reflash without physical access.
++#
++# Usage:
++#   sysupgrade.sh <url>            Download image from URL and flash
++#   sysupgrade.sh <local_path>     Flash a pre-downloaded image from /tmp
++#   sysupgrade.sh --commit         Mark current rootfs as good (exit safe mode)
++#   sysupgrade.sh --status         Show current boot state
++#
++# The URL can be an HTTP server on your LAN, e.g.:
++#   On host:   python3 -m http.server 9997 --directory flash/
++#   On device: sysupgrade.sh http://192.168.1.2:9997/rootfs.img
++
++set -e
++
++# ── Detect rootfs MTD partition ──────────────────────────────────────────
++# Find the MTD partition named "rootfs" from /proc/mtd rather than
++# hardcoding a partition number that may differ across flash layouts.
++detect_rootfs_mtd() {
++    local mtd_name mtd_num
++    mtd_name=$(grep '"rootfs"' /proc/mtd 2>/dev/null | head -1 | cut -d: -f1)
++    if [ -z "$mtd_name" ]; then
++        # Fallback: look for the squashfs partition by trying the current root
++        # device.  /dev/root -> mtdblock2 is the typical case.
++        mtd_num=$(readlink /dev/root 2>/dev/null | sed 's/mtdblock//')
++        if [ -z "$mtd_num" ]; then
++            mtd_num=2  # final fallback
++        fi
++        mtd_name="mtd${mtd_num}"
++    fi
++    echo "$mtd_name"
++}
++
++MTD_NAME=$(detect_rootfs_mtd)
++MTD_DEV="/dev/${MTD_NAME}"
++MTD_NUM=$(echo "$MTD_NAME" | sed 's/mtd//')
++IMG=/tmp/_upgrade.img
++FLASH_LOG=/tmp/_sysupgrade.log
++
++die() { echo "ERROR: $*" >&2; exit 1; }
++
++# ── Commands ─────────────────────────────────────────────────────────────
++
++case "$1" in
++    --commit)
++        fw_setenv boot_ok 1
++        echo "Boot committed.  Normal boot on next reboot."
++        exit 0
++        ;;
++    --status)
++        BOOT_OK=$(fw_printenv -n boot_ok 2>/dev/null || echo "<unset>")
++        echo "boot_ok = $BOOT_OK"
++        case "$BOOT_OK" in
++            1) echo "Status: normal (last boot succeeded)" ;;
++            0) echo "Status: SAFE MODE armed (upgrade pending or last boot failed)" ;;
++            *) echo "Status: not configured (will boot normally)" ;;
++        esac
++        exit 0
++        ;;
++    --do-flash)
++        # Internal: called by the detached flash process.  Do not run directly.
++        # At this point the image has been validated and safe mode is armed.
++        # stdin/stdout/stderr are redirected to the log file by the caller.
++        IMG="$2"
++        MTD_DEV="$3"
++
++        echo "$(date) Flash starting: $IMG -> $MTD_DEV"
++
++        # Copy flash tools to tmpfs before we erase the squashfs they live on.
++        cp /usr/sbin/flashcp /tmp/_flashcp 2>/dev/null || cp "$(which flashcp)" /tmp/_flashcp
++        cp /usr/sbin/flash_eraseall /tmp/_flash_eraseall 2>/dev/null || cp "$(which flash_eraseall)" /tmp/_flash_eraseall
++        chmod +x /tmp/_flashcp /tmp/_flash_eraseall
++
++        sync
++
++        echo "$(date) Erasing $MTD_DEV..."
++        /tmp/_flash_eraseall "$MTD_DEV"
++
++        echo "$(date) Writing $IMG..."
++        /tmp/_flashcp -v "$IMG" "$MTD_DEV"
++
++        echo "$(date) Flash complete.  Rebooting..."
++        rm -f "$IMG"
++        sync
++        sleep 1
++        reboot -f 2>/dev/null || echo b > /proc/sysrq-trigger
++        exit 0
++        ;;
++    "")
++        echo "Usage: sysupgrade.sh <url_or_path> | --commit | --status"
++        exit 1
++        ;;
++esac
++
++SRC="$1"
++
++echo "=== sysupgrade ==="
++echo "Rootfs partition: $MTD_DEV (${MTD_NAME})"
++
++# ── Step 1: Acquire image ────────────────────────────────────────────────
++
++if echo "$SRC" | grep -q '://'; then
++    echo "[1/5] Downloading image..."
++    rm -f "$IMG"
++    wget -q -O "$IMG" "$SRC" || die "Download failed: $SRC"
++else
++    [ -f "$SRC" ] || die "File not found: $SRC"
++    if [ "$SRC" != "$IMG" ]; then
++        cp "$SRC" "$IMG"
++    fi
++fi
++
++IMG_SIZE=$(stat -c%s "$IMG")
++echo "      Image: $IMG ($((IMG_SIZE / 1024)) KB)"
++
++# ── Step 2: Validate image ──────────────────────────────────────────────
++
++echo "[2/5] Validating image..."
++
++# 2a. Size check: must fit in MTD partition
++MTD_SIZE=$(cat /sys/class/mtd/${MTD_NAME}/size 2>/dev/null || echo 0)
++if [ "$MTD_SIZE" -gt 0 ] && [ "$IMG_SIZE" -gt "$MTD_SIZE" ]; then
++    die "Image ($IMG_SIZE bytes) exceeds $MTD_NAME partition ($MTD_SIZE bytes)"
++fi
++if [ "$MTD_SIZE" -gt 0 ]; then
++    echo "      Partition: $MTD_NAME ($((MTD_SIZE / 1024)) KB), image uses $((IMG_SIZE * 100 / MTD_SIZE))%"
++fi
++
++# 2b. Must not be zero-length
++[ "$IMG_SIZE" -gt 0 ] || die "Image is empty"
++
++# 2c. Squashfs magic check (first 4 bytes: 'hsqs' = 0x68737173 LE)
++MAGIC=$(hexdump -n4 -e '4/1 "%02x"' "$IMG")
++if [ "$MAGIC" != "68737173" ]; then
++    die "Not a squashfs image (magic: $MAGIC, expected: 68737173)"
++fi
++
++# 2d. Try to list squashfs contents — catches truncated/corrupt images
++if command -v unsquashfs >/dev/null 2>&1; then
++    if ! unsquashfs -l "$IMG" >/dev/null 2>&1; then
++        die "Squashfs integrity check failed (image may be truncated or corrupt)"
++    fi
++fi
++
++# 2e. Check that critical files exist in the image
++if command -v unsquashfs >/dev/null 2>&1; then
++    LIST=$(unsquashfs -l "$IMG" 2>/dev/null)
++    for f in /sbin/init /bin/busybox /usr/sbin/dropbear /etc/init.d/rcS; do
++        echo "$LIST" | grep -q "$f" || die "Image missing $f"
++    done
++    echo "      Critical files verified: init, busybox, dropbear, rcS"
++else
++    echo "      WARNING: unsquashfs not available, skipping content check"
++fi
++
++echo "      Validation passed."
++
++# ── Step 3: Arm safe mode ────────────────────────────────────────────────
++
++echo "[3/5] Arming safe mode (boot_ok=0)..."
++fw_setenv boot_ok 0 || die "Failed to set boot_ok — is fw_setenv working?"
++
++# ── Step 4: Launch detached flash process ────────────────────────────────
++#
++# The flash (erase + write) runs in a detached process that survives SSH
++# disconnection.  This is critical: if SSH drops during erase/write, the
++# flash operation continues to completion and reboots the device.
++#
++# The caller (SSH session) can safely disconnect at any point after this
++# step starts.  Progress is logged to /tmp/_sysupgrade.log.
++
++echo "[4/5] Starting flash process (detached, SSH-disconnect safe)..."
++echo "      Progress log: $FLASH_LOG"
++echo "      DO NOT POWER OFF THE DEVICE."
++
++# nohup + redirect + & makes the flash immune to HUP/SSH disconnect.
++# setsid creates a new session so it's fully detached from the terminal.
++nohup setsid sh -c "'$0' --do-flash '$IMG' '$MTD_DEV'" \
++    </dev/null >"$FLASH_LOG" 2>&1 &
++
++echo ""
++echo "[5/5] Flash process launched (PID $!)."
++echo ""
++echo "The device will reboot automatically when flashing completes."
++echo "You may safely disconnect now — the flash will continue."
++echo ""
++echo "After reboot, the first boot enters SAFE MODE (SSH only)."
++echo "Verify the new system, then commit:"
++echo "  sysupgrade.sh --commit && reboot"
++echo ""
++echo "To watch progress (if still connected):"
++echo "  tail -f $FLASH_LOG"
+diff --git a/general/overlay/usr/sbin/uart-diag.sh b/general/overlay/usr/sbin/uart-diag.sh
+new file mode 100755
+index 00000000..db68eeb6
+--- /dev/null
++++ b/general/overlay/usr/sbin/uart-diag.sh
+@@ -0,0 +1,331 @@
++#!/bin/sh
++# uart-diag.sh — Diagnose and configure UART1 for MCU communication
++# Hi3518EV200 + Dogness STC15W408AS MCU
++#
++# Usage:
++#   uart-diag.sh              — full diagnostic, record all state
++#   uart-diag.sh setup        — set pinmux and configure ttyAMA1
++#   uart-diag.sh listen       — listen for MCU data on ttyAMA1
++#   uart-diag.sh scan         — brute-force scan IOCFG 0xBC-0xD4 for UART1 TX
++
++LOG="/tmp/uart-diag.log"
++UART1_BASE=0x20090000
++CRG_REG=0x200300e4
++IOCFG_BASE=0x200f0000
++
++log() {
++    echo "$@"
++    echo "$@" >> "$LOG"
++}
++
++# ---------------------------------------------------------------
++# Phase 1: Record register state
++# ---------------------------------------------------------------
++record_state() {
++    log "=== UART Diagnostic — $(date) ==="
++    log ""
++
++    log "--- CRG Clock Register (0x200300e4) ---"
++    val=$(devmem $CRG_REG 32)
++    log "  CRG 0xe4 = $val"
++    num=$(printf '%d' "$val")
++    log "  UART0 clk (bit15): $(( (num >> 15) & 1 ))"
++    log "  UART1 clk (bit16): $(( (num >> 16) & 1 ))"
++    log "  UART2 clk (bit17): $(( (num >> 17) & 1 ))"
++    log ""
++
++    log "--- IOCFG Pinmux: UART1/I2S region (0xBC-0xD4) ---"
++    log "  Offset  Value  Pin    Mux=0 function"
++    for info in \
++        "0xbc:47:UART1_CTSN" \
++        "0xc0:48:UART1_RTSN" \
++        "0xc4:49:UART1_RXD" \
++        "0xc8:50:UART1_TXD" \
++        "0xcc:51:NF_DQ1/GPIO" \
++        "0xd0:52:I2S_BCLK/GPIO" \
++        "0xd4:53:JTAG_TRSTN/GPIO"
++    do
++        off=$(echo "$info" | cut -d: -f1)
++        pin=$(echo "$info" | cut -d: -f2)
++        func=$(echo "$info" | cut -d: -f3)
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++        val=$(devmem "$addr" 32)
++        log "  $off    $val   pin$pin  $func"
++    done
++    log ""
++
++    log "--- IOCFG Pinmux: RMII/Ethernet region (0x10-0x3C) ---"
++    log "  (These are NOT UART1 on EV200 despite V100 datasheet)"
++    for off in 0x10 0x14 0x18 0x1c 0x20 0x24 0x28 0x2c 0x34 0x38 0x3c; do
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++        val=$(devmem "$addr" 32)
++        log "  $off = $val"
++    done
++    log ""
++
++    log "--- PL011 UART1 Registers (base 0x20090000) ---"
++    dr=$(devmem 0x20090000 32)
++    fr=$(devmem 0x20090018 32)
++    ibrd=$(devmem 0x20090024 32)
++    fbrd=$(devmem 0x20090028 32)
++    lcr=$(devmem 0x2009002c 32)
++    cr=$(devmem 0x20090030 32)
++    imsc=$(devmem 0x20090038 32)
++    log "  DR   (0x00) = $dr"
++    log "  FR   (0x18) = $fr   (bit4=RXFE, bit5=TXFF, bit7=TXFE)"
++    log "  IBRD (0x24) = $ibrd"
++    log "  FBRD (0x28) = $fbrd"
++    log "  LCR_H(0x2C) = $lcr  (0x60=8N1, 0x70=8N1+FIFO)"
++    log "  CR   (0x30) = $cr   (0x301=UARTEN+TXE+RXE)"
++    log "  IMSC (0x38) = $imsc (interrupt mask: !=0 means IRQ mode)"
++    log ""
++
++    # Compute baud from IBRD/FBRD
++    ibrd_n=$(printf '%d' "$ibrd")
++    fbrd_n=$(printf '%d' "$fbrd")
++    if [ "$ibrd_n" -gt 0 ]; then
++        # PL011 baud = UARTCLK / (16 * (IBRD + FBRD/64))
++        # UARTCLK on Hi3518EV200 = 6MHz (24MHz / 4) or 24MHz depending on config
++        log "  Baud divisor: IBRD=$ibrd_n, FBRD=$fbrd_n"
++        log "  If UARTCLK=6MHz:  baud ~ $(( 6000000 / (16 * ibrd_n) ))"
++        log "  If UARTCLK=24MHz: baud ~ $(( 24000000 / (16 * ibrd_n) ))"
++    fi
++    log ""
++
++    log "--- PL011 UART2 Registers (base 0x200a0000) ---"
++    cr2=$(devmem 0x200a0030 32)
++    imsc2=$(devmem 0x200a0038 32)
++    log "  CR   (0x30) = $cr2"
++    log "  IMSC (0x38) = $imsc2"
++    log ""
++
++    log "--- Device nodes ---"
++    ls -la /dev/ttyAMA* 2>&1 | while read line; do log "  $line"; done
++    log ""
++
++    log "--- Kernel UART messages ---"
++    dmesg 2>/dev/null | grep -i "ttyAMA\|uart\|pl011\|serial" | while read line; do log "  $line"; done
++    log ""
++
++    log "--- /proc/interrupts (UART) ---"
++    grep -i "uart\|serial\|pl011" /proc/interrupts 2>/dev/null | while read line; do log "  $line"; done
++    # Also show IRQ 30 (UART1) directly
++    grep "^ *30:" /proc/interrupts 2>/dev/null | while read line; do log "  IRQ30: $line"; done
++    log ""
++
++    log "State recorded to $LOG"
++}
++
++# ---------------------------------------------------------------
++# Phase 2: Setup — ensure UART1 pins at mux=0 (reset default)
++# ---------------------------------------------------------------
++setup_uart1() {
++    log "=== Setting up UART1 for MCU ==="
++
++    # Ensure UART1 clock is enabled (bit 16)
++    val=$(devmem $CRG_REG 32)
++    num=$(printf '%d' "$val")
++    if [ $(( (num >> 16) & 1 )) -eq 0 ]; then
++        new=$(printf '0x%08X' $((num | 0x10000)))
++        log "Enabling UART1 clock: $val -> $new"
++        devmem $CRG_REG 32 "$new"
++    else
++        log "UART1 clock already enabled"
++    fi
++
++    # Ensure UART1 pins at mux=0 (UART1 function on EV200)
++    # 0xC4 = UART1_RXD, 0xC8 = UART1_TXD at mux=0
++    for info in "0xc4:UART1_RXD" "0xc8:UART1_TXD"; do
++        off=$(echo "$info" | cut -d: -f1)
++        func=$(echo "$info" | cut -d: -f2)
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++        cur=$(devmem "$addr" 32)
++        if [ "$cur" != "0x00000000" ]; then
++            log "Resetting $addr ($func) from $cur to 0"
++            devmem "$addr" 32 0
++        else
++            log "$addr ($func) already at mux=0"
++        fi
++    done
++
++    # Also ensure 0xBC (CTSN) and 0xC0 (RTSN) at mux=0 for full UART1
++    for info in "0xbc:UART1_CTSN" "0xc0:UART1_RTSN"; do
++        off=$(echo "$info" | cut -d: -f1)
++        func=$(echo "$info" | cut -d: -f2)
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++        cur=$(devmem "$addr" 32)
++        if [ "$cur" != "0x00000000" ]; then
++            log "Resetting $addr ($func) from $cur to 0"
++            devmem "$addr" 32 0
++        else
++            log "$addr ($func) already at mux=0"
++        fi
++    done
++
++    # Configure ttyAMA1
++    stty -F /dev/ttyAMA1 115200 raw -echo cs8 -cstopb -parenb cread clocal -crtscts
++    log "ttyAMA1 configured: 115200 8N1"
++
++    # Verify PL011 is enabled after opening
++    cr=$(devmem 0x20090030 32)
++    log "UART1 CR after stty = $cr (expect 0x00000301 for UARTEN+TXE+RXE)"
++
++    log ""
++    log "Setup complete. UART1 should be active on:"
++    log "  IOCFG pin 49 (0xC4) = UART1_RXD (SoC receives from MCU)"
++    log "  IOCFG pin 50 (0xC8) = UART1_TXD (SoC transmits to MCU)"
++    log ""
++    log "If MCU is on GPIO 51/52 instead of 49/50, run: $0 scan"
++}
++
++# ---------------------------------------------------------------
++# Phase 3: Listen for MCU data
++# ---------------------------------------------------------------
++listen_uart1() {
++    stty -F /dev/ttyAMA1 115200 raw -echo cs8 -cstopb -parenb cread clocal -crtscts
++    log "=== Listening on ttyAMA1 (115200 8N1) — trigger MCU now ==="
++    log "Press Ctrl-C to stop"
++    cat /dev/ttyAMA1 | xxd
++}
++
++# ---------------------------------------------------------------
++# Phase 4: Brute-force scan — try each IOCFG pin as UART1 TX
++# ---------------------------------------------------------------
++scan_uart1_tx() {
++    log "=== Scanning IOCFG 0xB8-0xD4 for UART1 TX signal ==="
++    log ""
++    log "This sends data on ttyAMA1 and checks which pin goes LOW."
++    log "UART TX idles HIGH; during transmission it pulses LOW."
++    log ""
++
++    # First, configure ttyAMA1
++    stty -F /dev/ttyAMA1 115200 raw -echo cs8 -cstopb -parenb cread clocal -crtscts
++
++    # Save current mux values
++    log "Saving current mux state..."
++    saved=""
++    for off in 0xb8 0xbc 0xc0 0xc4 0xc8 0xcc 0xd0 0xd4; do
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++        val=$(devmem "$addr" 32)
++        saved="$saved $off=$val"
++        log "  $addr = $val"
++    done
++    log ""
++
++    # For each pin, try mux=0 (expected UART1 function) and send data
++    # Export GPIOs 46-53 as inputs for reading
++    for gpio in 46 47 48 49 50 51 52 53; do
++        echo "$gpio" > /sys/class/gpio/export 2>/dev/null
++        echo "in" > /sys/class/gpio/gpio${gpio}/direction 2>/dev/null
++    done
++
++    log "Testing each pin at mux=0..."
++    log "Pin  GPIO  Offset  Before  During  Result"
++    log "---  ----  ------  ------  ------  ------"
++
++    for info in \
++        "46:0xb8" "47:0xbc" "48:0xc0" "49:0xc4" \
++        "50:0xc8" "51:0xcc" "52:0xd0" "53:0xd4"
++    do
++        gpio=$(echo "$info" | cut -d: -f1)
++        off=$(echo "$info" | cut -d: -f2)
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++
++        # Set pin to mux=0
++        devmem "$addr" 32 0
++
++        # Brief delay for pin to settle
++        usleep 10000 2>/dev/null || sleep 0.01
++
++        # Read GPIO value before sending
++        before=$(cat /sys/class/gpio/gpio${gpio}/value 2>/dev/null || echo "?")
++
++        # Send data on ttyAMA1 (background) and read GPIO during
++        echo -ne '\xff\xff\xff\xff\xff\xff\xff\xff' > /dev/ttyAMA1 &
++        usleep 500 2>/dev/null || sleep 0.001
++        during=$(cat /sys/class/gpio/gpio${gpio}/value 2>/dev/null || echo "?")
++        wait
++
++        if [ "$before" = "1" ] && [ "$during" = "0" ]; then
++            result="<<< UART1_TXD FOUND >>>"
++        elif [ "$before" = "?" ]; then
++            result="(GPIO export failed)"
++        else
++            result="-"
++        fi
++
++        log "  $gpio   $gpio    $off    $before       $during     $result"
++    done
++
++    log ""
++    log "Now testing mux=1 for each pin..."
++    log "Pin  GPIO  Offset  Before  During  Result"
++    log "---  ----  ------  ------  ------  ------"
++
++    for info in \
++        "46:0xb8" "47:0xbc" "48:0xc0" "49:0xc4" \
++        "50:0xc8" "51:0xcc" "52:0xd0" "53:0xd4"
++    do
++        gpio=$(echo "$info" | cut -d: -f1)
++        off=$(echo "$info" | cut -d: -f2)
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++
++        devmem "$addr" 32 1
++        usleep 10000 2>/dev/null || sleep 0.01
++
++        before=$(cat /sys/class/gpio/gpio${gpio}/value 2>/dev/null || echo "?")
++
++        echo -ne '\xff\xff\xff\xff\xff\xff\xff\xff' > /dev/ttyAMA1 &
++        usleep 500 2>/dev/null || sleep 0.001
++        during=$(cat /sys/class/gpio/gpio${gpio}/value 2>/dev/null || echo "?")
++        wait
++
++        if [ "$before" = "1" ] && [ "$during" = "0" ]; then
++            result="<<< UART1_TXD FOUND (mux=1) >>>"
++        elif [ "$before" = "?" ]; then
++            result="(GPIO export failed)"
++        else
++            result="-"
++        fi
++
++        log "  $gpio   $gpio    $off    $before       $during     $result"
++    done
++
++    # Restore mux values
++    log ""
++    log "Restoring original mux state..."
++    for pair in $saved; do
++        off=$(echo "$pair" | cut -d= -f1)
++        val=$(echo "$pair" | cut -d= -f2)
++        addr=$(printf '0x%x' $((IOCFG_BASE + off)))
++        devmem "$addr" 32 "$val"
++    done
++
++    # Unexport GPIOs
++    for gpio in 46 47 48 49 50 51 52 53; do
++        echo "$gpio" > /sys/class/gpio/unexport 2>/dev/null
++    done
++
++    log "Scan complete. Results in $LOG"
++}
++
++# ---------------------------------------------------------------
++# Main
++# ---------------------------------------------------------------
++> "$LOG"
++
++case "${1:-}" in
++    setup)
++        record_state
++        setup_uart1
++        ;;
++    listen)
++        listen_uart1
++        ;;
++    scan)
++        scan_uart1_tx
++        ;;
++    *)
++        record_state
++        ;;
++esac
+diff --git a/general/overlay/usr/sbin/uart-fullscan.sh b/general/overlay/usr/sbin/uart-fullscan.sh
+new file mode 100755
+index 00000000..38c4e636
+--- /dev/null
++++ b/general/overlay/usr/sbin/uart-fullscan.sh
+@@ -0,0 +1,72 @@
++#!/bin/sh
++# uart-fullscan.sh [start_pin] — Scan IOCFG pins for UART1/UART2 TX
++#
++# SAFE: Only touches pins currently at mux=0 AND not in the skip list.
++# Skips SDIO/WiFi region (pins 26-43) to avoid killing connectivity.
++# Each pin is restored immediately after testing.
++#
++# Usage:
++#   uart-fullscan.sh         — scan all safe pins
++#   uart-fullscan.sh 44      — start from pin 44
++
++IOCFG=0x200f0000
++PATTERN='\xaa\x55\xaa\x55\xaa\x55\xaa\x55\xaa\x55\xaa\x55\xaa\x55\xaa\x55'
++START_PIN=${1:-0}
++
++# Skip list: pins known to be dangerous or already scanned
++# 26-43: SDIO/MMC/WiFi region (kills WiFi when touched)
++# Sensor and RMII pins are non-zero mux so auto-skipped
++is_skipped() {
++    pin=$1
++    # SDIO/WiFi region
++    if [ $pin -ge 26 ] && [ $pin -le 43 ]; then
++        return 0
++    fi
++    return 1
++}
++
++stty -F /dev/ttyAMA1 115200 raw -echo cs8 -cstopb -parenb cread clocal -crtscts 2>/dev/null
++stty -F /dev/ttyAMA2 115200 raw -echo cs8 -cstopb -parenb cread clocal -crtscts 2>/dev/null
++
++echo "=== Safe IOCFG scan (start_pin=$START_PIN, skipping 26-43) ==="
++echo ""
++
++off=$((START_PIN * 4))
++while [ $off -le 260 ]; do
++    pin=$((off / 4))
++    hex=$(printf '0x%03x' $off)
++    addr=$(printf '0x%x' $((IOCFG + off)))
++
++    if is_skipped $pin; then
++        echo "  pin $pin ($hex) [SKIP - SDIO region]"
++        off=$((off + 4))
++        continue
++    fi
++
++    val=$(devmem "$addr" 32)
++    num=$(printf '%d' "$val")
++
++    if [ $num -ne 0 ]; then
++        echo "  pin $pin ($hex) = $val [SKIP - in use]"
++        off=$((off + 4))
++        continue
++    fi
++
++    # Safe to test — try mux 1-7
++    for mux in 1 2 3 4 5 6 7; do
++        devmem "$addr" 32 $mux
++        echo -ne "$PATTERN" > /dev/ttyAMA1
++        usleep 30000 2>/dev/null || true
++        echo -ne "$PATTERN" > /dev/ttyAMA2
++        usleep 30000 2>/dev/null || true
++    done
++
++    # Restore immediately
++    devmem "$addr" 32 0
++    echo "  pin $pin ($hex) done"
++
++    off=$((off + 4))
++done
++
++echo ""
++echo "Scan complete."
+diff --git a/general/overlay/usr/sbin/uart-sweep.sh b/general/overlay/usr/sbin/uart-sweep.sh
+new file mode 100755
+index 00000000..5a60da87
+--- /dev/null
++++ b/general/overlay/usr/sbin/uart-sweep.sh
+@@ -0,0 +1,67 @@
++#!/bin/sh
++# uart-sweep.sh — Brute-force find which UART+pin+mux combo reaches the MCU
++#
++# Watch the logic analyzer TX line while this runs.
++# Each test is announced with a unique marker and a 2-second pause.
++# When you see UART data appear on the LA, note what was printed on console.
++
++IOCFG=0x200f0000
++
++# Save current mux values
++echo "Saving mux state..."
++saved=""
++for off in 0xb8 0xbc 0xc0 0xc4 0xc8 0xcc 0xd0 0xd4; do
++    addr=$(printf '0x%x' $((IOCFG + off)))
++    val=$(devmem "$addr" 32)
++    saved="$saved $off=$val"
++    echo "  $addr = $val"
++done
++
++# Configure both UARTs
++stty -F /dev/ttyAMA1 115200 raw -echo cs8 -cstopb -parenb cread clocal -crtscts 2>/dev/null
++stty -F /dev/ttyAMA2 115200 raw -echo cs8 -cstopb -parenb cread clocal -crtscts 2>/dev/null
++
++# Test pattern - distinct enough to spot on LA
++PATTERN='\xaa\x55\xaa\x55\xaa\x55\xaa\x55'
++
++echo ""
++echo "=== Starting sweep — watch LA for data ==="
++echo "Each combo gets 2 seconds. Note the console output when data appears."
++echo ""
++
++for off in 0xbc 0xc0 0xc4 0xc8 0xcc 0xd0; do
++    for mux in 0 1 2 3 4 5 6 7; do
++        addr=$(printf '0x%x' $((IOCFG + off)))
++
++        # Reset all candidate pins to mux=0 first
++        for r in 0xbc 0xc0 0xc4 0xc8 0xcc 0xd0; do
++            ra=$(printf '0x%x' $((IOCFG + r)))
++            devmem "$ra" 32 0
++        done
++
++        # Set this pin to test mux value
++        devmem "$addr" 32 $mux
++
++        # Send on ttyAMA1
++        echo "TX>> ttyAMA1  pin=$off  mux=$mux"
++        echo -ne "$PATTERN" > /dev/ttyAMA1
++        sleep 1
++
++        # Send on ttyAMA2
++        echo "TX>> ttyAMA2  pin=$off  mux=$mux"
++        echo -ne "$PATTERN" > /dev/ttyAMA2
++        sleep 1
++    done
++done
++
++# Restore
++echo ""
++echo "Restoring mux state..."
++for pair in $saved; do
++    off=$(echo "$pair" | cut -d= -f1)
++    val=$(echo "$pair" | cut -d= -f2)
++    addr=$(printf '0x%x' $((IOCFG + off)))
++    devmem "$addr" 32 "$val"
++done
++
++echo "Sweep complete."
