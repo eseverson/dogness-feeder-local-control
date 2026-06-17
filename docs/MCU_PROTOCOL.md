@@ -161,23 +161,29 @@ GPS-equipped board variants; not exercised on `DOGNESS_PETS_V200_BREAD_DEVICE`.
 
 ## 5. MCU → SoC (RX)
 
-### 5.1 Feed result — **MEDIUM**
+### 5.1 Feed complete (feed result) — `cmd=0x07` / `0x15` — **HIGH**
 
-After a feed cycle the MCU returns a 6-field frame (shown after the `FF FF len`
-framing is stripped):
+`cmd=0x07` (normal) and `cmd=0x15` (IR food-present) are the **same 10-byte frame**;
+the stock firmware routes both through one handler (`pthread_main:0xdb6c`) and reports a
+*manual* feed's completion as `0x15`, so decode them together. Layout recovered from the
+`ldrb` instructions and confirmed byte-for-byte against the captures below:
 
-| Field | Bytes | Meaning |
-|---|---|---|
-| 0 | 1 | `mem_id` / command echo (which feed slot) |
-| 1 | 1 | `feed_type` (manual vs scheduled response) |
-| 2 | 1 | `valid` flag (1 = success, 0 = jam / fail) |
-| 3 | 2 (LE) | `weight` the MCU reports for the feed |
-| 4 | 1 | `audio_index` — sound to play after dispense |
-| 5 | 1+ | motor-health / retry flags |
+| Off | Bytes | Field | Meaning |
+|---|---|---|---|
+| 0–4 | 5 | — | diagnostic / pad (zero on a real feed) |
+| **5–6** | **2 (LE)** | **`weight`** | commanded/echoed amount in MCU units = `portions × 10`; live `0a 00` = 10 = 1 portion |
+| 7 | 1 | `status` | packed: `>>4` = feed_type, `& 0x0E` = slot/`mem_id`, bit0 = valid marker; live `0x21`. **Not a weight.** |
+| 8 | 1 | — | pad |
+| 9 | 1 | `audio_index` | echoed sound-clip index (0 = silent) |
 
-**Not fully decoded:** field widths and byte order are inferred from the `%d` count
-in the firmware's log strings, not from a capture — confirm with a logic analyzer
-during a feed.
+`weight = payload[5] | (payload[6] << 8)`. **There is no load cell** — `weight` is the
+commanded amount, not a measurement. `portions = weight / 10`.
+
+> An earlier draft mapped this frame as `mem_id, feed_type, valid, weight(LE16),
+> audio_index, motor_flags` and read the weight from `payload[7]`. That was wrong:
+> `payload[7]` (`0x21`) is a packed status byte, and the strings that draft cited
+> (`y:%d %d %d %d %d %d`, `22 recive mem id…`) are actually the clock dump and the
+> outbound shm-command dump, not the feed result.
 
 Concrete frames seen on the wire (feed-complete uses a `FF FC` SOF variant):
 
@@ -245,7 +251,8 @@ Everything else is internal and never touches the MCU.
 TX MANUAL FEED (14B):  FF FF 01 0A 3A 09 03 0E 0B <weight> 00 00 00 0A
 TX AUTO FEED   (14B):  FF FF 01 0A A5 A7 7F <hh> <mm> <cnt_lo> <cnt_hi> 11 <delay> <weight>
 TX TIME SYNC   (10B):  FF FF 06 06 <hh> <mm> <ss> <??> <??> <??>      (bytes 7-9 undecoded)
-RX FEED RESULT:        <mem_id> <feed_type> <valid> <weight_lo> <weight_hi> <audio_idx> <motor_flags…>
+RX FEED COMPLETE:      FF FC 07/15 0A  p0..p4  <wt_lo> <wt_hi>  <status>  p8  <audio_idx>
+                       weight = p5 | (p6<<8)  (portions = weight/10); p7 = >>4 type, &0x0E slot
 RX VERSION:            v <version>\n
 RX FEED ERROR:         FF FF … cmd 0x05, payload[0] = error code
 ```
