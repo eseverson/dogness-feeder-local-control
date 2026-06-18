@@ -195,10 +195,10 @@ index 00000000..a5dc79da
 +) &
 diff --git a/general/package/catd/src/Makefile b/general/package/catd/src/Makefile
 new file mode 100644
-index 00000000..8ec48311
+index 00000000..1cf5eb56
 --- /dev/null
 +++ b/general/package/catd/src/Makefile
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,25 @@
 +CC      ?= gcc
 +CFLAGS  ?= -Wall -Wextra -std=c99 -pedantic -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 +LDFLAGS ?= -lmosquitto -lpthread
@@ -206,7 +206,7 @@ index 00000000..8ec48311
 +SRCS    = catd.c uart.c gpio.c
 +OBJS    = $(SRCS:.c=.o)
 +
-+.PHONY: all clean
++.PHONY: all clean test
 +
 +all: $(TARGET)
 +
@@ -216,14 +216,20 @@ index 00000000..8ec48311
 +$(TARGET): $(OBJS)
 +	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 +
++# Host-side unit tests for the pure frame decoders (no mosquitto/target deps).
++# Run on the build host: make test
++test: test_uart.c uart.c uart.h
++	$(CC) $(CFLAGS) -o test_uart test_uart.c uart.c
++	./test_uart
++
 +clean:
-+	rm -f $(TARGET) $(OBJS)
++	rm -f $(TARGET) $(OBJS) test_uart
 diff --git a/general/package/catd/src/catd.c b/general/package/catd/src/catd.c
 new file mode 100644
-index 00000000..f7716313
+index 00000000..eb5af8ff
 --- /dev/null
 +++ b/general/package/catd/src/catd.c
-@@ -0,0 +1,1740 @@
+@@ -0,0 +1,1767 @@
 +/*
 + * catd — MQTT bridge daemon for Dogness cat feeder
 + *
@@ -734,7 +740,8 @@ index 00000000..f7716313
 +	mqtt_publish(TOPIC_PREFIX "feed/status", status, 1);
 +}
 +
-+static void publish_feed_result(int dispensed_weight, const uint8_t *raw, int raw_len)
++static void publish_feed_result(const struct mcu_feed_result *r,
++				const uint8_t *raw, int raw_len)
 +{
 +	char hexbuf[192] = "";
 +	int hpos = 0;
@@ -742,12 +749,17 @@ index 00000000..f7716313
 +		hpos += snprintf(hexbuf + hpos, sizeof(hexbuf) - hpos,
 +				 "%02x ", raw[i]);
 +
-+	int portions = dispensed_weight / 10;
 +	char json[512];
 +	snprintf(json, sizeof(json),
-+		 "{\"portions\":%d,\"weight\":%d,\"raw\":\"%s\"}",
-+		 portions, dispensed_weight, hexbuf);
-+	mqtt_publish(TOPIC_PREFIX "feed/result", json, 0);
++		 "{\"portions\":%d,\"weight\":%d,\"food_confirmed\":%s,"
++		 "\"feed_type\":%d,\"audio\":%d,\"raw\":\"%s\"}",
++		 r->portions, r->weight,
++		 r->food_confirmed ? "true" : "false",
++		 r->feed_type, r->audio_index, hexbuf);
++	/* retain=1: HA restores the last result after a restart / MQTT
++	 * reconnect / discovery re-announce. With retain=0 the Feed Result
++	 * sensor reverts to "unknown" between feeds. */
++	mqtt_publish(TOPIC_PREFIX "feed/result", json, 1);
 +}
 +
 +static void publish_mcu_version(void)
@@ -1631,24 +1643,32 @@ index 00000000..f7716313
 +		      * Same 10-byte payload layout as 0x07; this firmware
 +		      * reports manual-feed completion here, so without it the
 +		      * feed never clears and always "times out". */
-+		int dispensed = 0;
-+		if (mcu_decode_feed_result(f, &dispensed) == 0) {
-+			log_info("catd: feed result (cmd=0x%02x), weight=%d\n",
-+				 f->cmd, dispensed);
-+			publish_feed_result(dispensed, f->raw, f->raw_len);
++		struct mcu_feed_result r;
++		if (mcu_decode_feed_result(f, &r) == 0) {
++			log_info("catd: feed result cmd=0x%02x portions=%d weight=%d "
++				 "food_confirmed=%d feed_type=%d audio=%d\n",
++				 f->cmd, r.portions, r.weight, r.food_confirmed,
++				 r.feed_type, r.audio_index);
++			publish_feed_result(&r, f->raw, f->raw_len);
 +			publish_feed_status("complete");
 +			g_feed_pending = 0;
 +		}
 +		break;
 +	}
 +
-+	case 0x05:
-+		/* Async error from a fired schedule. payload[0] = error code. */
-+		log_err("catd: MCU async error code 0x%02x\n", f->payload[0]);
++	case 0x05: {
++		/* Async error (mid-feed jam / motor fault). payload[0] is the
++		 * error code (0x04 observed on a low-food/obstructed feed). The
++		 * old code published the literal command byte "0x05" here,
++		 * discarding the real code. */
++		char code[8];
++		snprintf(code, sizeof(code), "0x%02x", f->payload[0]);
++		log_err("catd: MCU async error code %s\n", code);
 +		mqtt_publish(TOPIC_PREFIX "feed/status", "error", 1);
-+		mqtt_publish(TOPIC_PREFIX "feed/error_code", "0x05", 0);
++		mqtt_publish(TOPIC_PREFIX "feed/error_code", code, 1);
 +		g_feed_pending = 0;
 +		break;
++	}
 +
 +	case 0x0C:
 +		/* Audio-state notification during scheduled feed; informational. */
@@ -1730,9 +1750,22 @@ index 00000000..f7716313
 +			 f->payload[0], f->payload[1], f->payload[2]);
 +		break;
 +
-+	default:
-+		log_info("catd: unknown frame cmd=0x%02x len=%u\n", f->cmd, f->len);
++	default: {
++		/* Frames the stock MCU emits that we don't decode yet:
++		 *   0x03 schedule-write echo, 0x08 command-class handshake,
++		 *   0x0B record-trigger, 0x18/0x19 sensor latches (battery / lid /
++		 *   button?). Dump full payload so these can be identified from
++		 *   logs on a live unit. */
++		char hex[3 * MCU_MAX_PAYLOAD + 1] = "";
++		int hp = 0;
++		for (int i = 0; i < f->len && i < MCU_MAX_PAYLOAD &&
++				hp < (int)sizeof(hex) - 3; i++)
++			hp += snprintf(hex + hp, sizeof(hex) - hp, "%02x ",
++				       f->payload[i]);
++		log_info("catd: unhandled frame sof1=0x%02x cmd=0x%02x len=%u payload=[ %s]\n",
++			 f->sof1, f->cmd, f->len, hex);
 +		break;
++	}
 +	}
 +}
 +
@@ -2064,12 +2097,178 @@ index 00000000..dc8d5fd6
 +void gpio_cleanup(int gpio_num);
 +
 +#endif
+diff --git a/general/package/catd/src/test_uart.c b/general/package/catd/src/test_uart.c
+new file mode 100644
+index 00000000..da3a015c
+--- /dev/null
++++ b/general/package/catd/src/test_uart.c
+@@ -0,0 +1,160 @@
++/*
++ * Host-side unit tests for the MCU frame decoders in uart.c.
++ *
++ * Built and run on the host (not cross-compiled). Exercises the pure
++ * decode functions against real wire captures from the device.
++ *
++ *   cc -DUART_TEST -o test_uart test_uart.c uart.c && ./test_uart
++ *
++ * The feed-result cases use the exact bytes captured on ttyAMA2 during a
++ * 1-portion manual feed:
++ *   normal:        ff fc 07 0a 00 00 00 00 00 0a 00 21 00 00
++ *   IR-confirmed:  ff fc 15 0a 00 00 00 00 00 0a 00 21 00 00
++ * Disassembly of libjiake_protocol.so pthread_main (0xdb6c handler) shows the
++ * dispensed weight is a little-endian uint16 at payload[5..6] (== 0x000a = 10
++ * == 1 portion), NOT payload[7] (== 0x21, a feed_type<<4 | slot status byte).
++ */
++
++#include "uart.h"
++
++#include <signal.h>
++#include <stdio.h>
++#include <string.h>
++
++/* uart.c references this; provide a definition for the test link. */
++volatile sig_atomic_t g_running = 1;
++
++static int g_fail;
++
++#define CHECK(cond, ...) do {                                   \
++	if (!(cond)) {                                          \
++		printf("FAIL %s:%d: ", __func__, __LINE__);    \
++		printf(__VA_ARGS__);                            \
++		printf("\n");                                  \
++		g_fail++;                                      \
++	}                                                      \
++} while (0)
++
++/* Build an mcu_frame from raw on-the-wire bytes (incl. FF + SOF1 + cmd + len). */
++static struct mcu_frame frame_from_wire(const uint8_t *raw, int n)
++{
++	struct mcu_frame f;
++	memset(&f, 0, sizeof(f));
++	f.sof1 = raw[1];
++	f.cmd  = raw[2];
++	f.len  = raw[3];
++	memcpy(f.raw, raw, n);
++	f.raw_len = n;
++	if (f.len > 0 && f.len <= MCU_MAX_PAYLOAD)
++		memcpy(f.payload, raw + 4, f.len);
++	return f;
++}
++
++static void test_feed_result_normal(void)
++{
++	const uint8_t wire[] = {
++		0xff, 0xfc, 0x07, 0x0a,
++		0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x21, 0x00, 0x00
++	};
++	struct mcu_frame f = frame_from_wire(wire, sizeof(wire));
++
++	struct mcu_feed_result r;
++	int rc = mcu_decode_feed_result(&f, &r);
++	CHECK(rc == 0, "decode rc=%d, want 0", rc);
++	CHECK(r.weight == 10, "weight=%d, want 10 (LE16 payload[5..6])", r.weight);
++	CHECK(r.portions == 1, "portions=%d, want 1 (weight/10)", r.portions);
++	CHECK(r.feed_type == 2, "feed_type=%d, want 2 (payload[7]>>4)", r.feed_type);
++	CHECK(r.slot == 0, "slot=%d, want 0 (payload[7]&0x0E)", r.slot);
++	CHECK(r.audio_index == 0, "audio_index=%d, want 0 (payload[9])", r.audio_index);
++	CHECK(r.food_confirmed == 0, "food_confirmed=%d, want 0 (cmd!=0x15)",
++	      r.food_confirmed);
++}
++
++static void test_feed_result_ir_confirmed(void)
++{
++	const uint8_t wire[] = {
++		0xff, 0xfc, 0x15, 0x0a,
++		0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x21, 0x00, 0x00
++	};
++	struct mcu_frame f = frame_from_wire(wire, sizeof(wire));
++
++	struct mcu_feed_result r;
++	int rc = mcu_decode_feed_result(&f, &r);
++	CHECK(rc == 0, "decode rc=%d, want 0", rc);
++	CHECK(r.weight == 10, "weight=%d, want 10", r.weight);
++	CHECK(r.portions == 1, "portions=%d, want 1", r.portions);
++	CHECK(r.food_confirmed == 1, "food_confirmed=%d, want 1 (cmd==0x15)",
++	      r.food_confirmed);
++}
++
++/* A 3-portion feed must report weight 30 (LE16), portions 3. */
++static void test_feed_result_three_portions(void)
++{
++	const uint8_t wire[] = {
++		0xff, 0xfc, 0x07, 0x0a,
++		0x00, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x21, 0x00, 0x00
++	};
++	struct mcu_frame f = frame_from_wire(wire, sizeof(wire));
++
++	struct mcu_feed_result r;
++	int rc = mcu_decode_feed_result(&f, &r);
++	CHECK(rc == 0, "decode rc=%d, want 0", rc);
++	CHECK(r.weight == 30, "weight=%d, want 30", r.weight);
++	CHECK(r.portions == 3, "portions=%d, want 3", r.portions);
++}
++
++/* Multi-portion feed exercising the high byte of the LE16 weight. */
++static void test_feed_result_weight_high_byte(void)
++{
++	/* weight = 0x0102 = 258 -> portions 25 */
++	const uint8_t wire[] = {
++		0xff, 0xfc, 0x07, 0x0a,
++		0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x01, 0x21, 0x00, 0x00
++	};
++	struct mcu_frame f = frame_from_wire(wire, sizeof(wire));
++	struct mcu_feed_result r;
++	CHECK(mcu_decode_feed_result(&f, &r) == 0, "decode failed");
++	CHECK(r.weight == 0x0102, "weight=%d, want 258 (LE16)", r.weight);
++}
++
++static void test_feed_result_rejects_other_cmds(void)
++{
++	const uint8_t wire[] = { 0xff, 0xff, 0x11, 0x01, 0x01 };
++	struct mcu_frame f = frame_from_wire(wire, sizeof(wire));
++	struct mcu_feed_result r;
++	CHECK(mcu_decode_feed_result(&f, &r) == -1,
++	      "should reject cmd=0x11 chute frame");
++}
++
++static void test_time_decode(void)
++{
++	/* ff ff 06 06 <yr-1960> <mon> <day> <hh> <mm> <ss> -> 2026-06-17 12:30:05 */
++	const uint8_t wire[] = {
++		0xff, 0xff, 0x06, 0x06, 66, 6, 17, 12, 30, 5
++	};
++	struct mcu_frame f = frame_from_wire(wire, sizeof(wire));
++	struct mcu_time t;
++	int rc = mcu_decode_time(&f, &t);
++	CHECK(rc == 0, "time rc=%d", rc);
++	CHECK(t.year == 2026, "year=%d want 2026", t.year);
++	CHECK(t.month == 6 && t.day == 17, "date=%d-%d", t.month, t.day);
++	CHECK(t.hour == 12 && t.minute == 30 && t.second == 5,
++	      "tod=%d:%d:%d", t.hour, t.minute, t.second);
++}
++
++int main(void)
++{
++	test_feed_result_normal();
++	test_feed_result_ir_confirmed();
++	test_feed_result_three_portions();
++	test_feed_result_weight_high_byte();
++	test_feed_result_rejects_other_cmds();
++	test_time_decode();
++
++	if (g_fail) {
++		printf("\n%d check(s) FAILED\n", g_fail);
++		return 1;
++	}
++	printf("all decoder tests passed\n");
++	return 0;
++}
 diff --git a/general/package/catd/src/uart.c b/general/package/catd/src/uart.c
 new file mode 100644
-index 00000000..da109856
+index 00000000..a53ec35c
 --- /dev/null
 +++ b/general/package/catd/src/uart.c
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,352 @@
 +/*
 + * MCU UART protocol implementation.
 + * See docs/MCU_PROTOCOL.md for the wire format.
@@ -2383,26 +2582,31 @@ index 00000000..da109856
 +	return 0;
 +}
 +
-+int mcu_decode_feed_result(const struct mcu_frame *f, int *weight)
++int mcu_decode_feed_result(const struct mcu_frame *f, struct mcu_feed_result *out)
 +{
 +	if ((f->cmd != 0x07 && f->cmd != 0x15) || f->len < 10)
 +		return -1;
++	if (!out)
++		return 0;
++
 +	/*
-+	 * Manual-feed result: payload[5]=commanded_weight, payload[7]=dispensed.
-+	 * Auto-feed result echoes the entire TX payload — no separate dispensed
-+	 * field. We report payload[5] (weight commanded/echoed) for both.
++	 * Layout per libjiake_protocol.so pthread_main (0xdb6c handler):
++	 *   weight = payload[5] | (payload[6] << 8)   -- the value the stock
++	 *            firmware forwards to its cloud as "weight" (dc28/dc24/dc30:
++	 *            orr r6, p5, p6, lsl #8). This is MCU units = portions * 10.
++	 *   payload[7] is a packed status byte (NOT a weight): high nibble is the
++	 *            firmware's feed_type/completion seed, low nibble & 0x0E is the
++	 *            schedule-slot / mem_id index.
++	 *   payload[9] is the echoed audio-clip index.
++	 * The previous code read payload[7] as a weight, which yielded e.g.
++	 * 0x21 = 33 ("3 portions") for a real 1-portion feed.
 +	 */
-+	if (weight) {
-+		/* For manual-feed results, payload[7] carries the actual
-+		 * dispensed weight (e.g. 0x20 = 32g). For auto-feed results,
-+		 * payload[7] is part of the TX echo (0x11 or 0x00). Prefer
-+		 * payload[7] when it differs from payload[5]; otherwise fall
-+		 * back to payload[5]. */
-+		if (f->payload[7] != 0 && f->payload[7] != 0x11)
-+			*weight = f->payload[7];
-+		else
-+			*weight = f->payload[5];
-+	}
++	out->weight        = f->payload[5] | (f->payload[6] << 8);
++	out->portions      = out->weight / 10;
++	out->feed_type     = f->payload[7] >> 4;
++	out->slot          = f->payload[7] & 0x0E;
++	out->audio_index   = f->payload[9];
++	out->food_confirmed = (f->cmd == 0x15) ? 1 : 0;
 +	return 0;
 +}
 +
@@ -2419,10 +2623,10 @@ index 00000000..da109856
 +}
 diff --git a/general/package/catd/src/uart.h b/general/package/catd/src/uart.h
 new file mode 100644
-index 00000000..dbf4afcc
+index 00000000..99aa7d05
 --- /dev/null
 +++ b/general/package/catd/src/uart.h
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,149 @@
 +#ifndef CATD_UART_H
 +#define CATD_UART_H
 +
@@ -2473,6 +2677,28 @@ index 00000000..dbf4afcc
 +	int     weight;            /* 0..65535 (LE16 for autofeed; uint8 for meal) */
 +	int     enabled;           /* 1 if low bit of enable byte is set */
 +	int     audio_idx;         /* autofeed only */
++};
++
++/*
++ * Decoded feed-complete record from a cmd=0x07 / 0x15 frame.
++ *
++ * Field offsets were recovered from libjiake_protocol.so pthread_main (the
++ * stock firmware's RX handler at 0xdb6c) and confirmed against live captures:
++ *   normal:       ff fc 07 0a 00 00 00 00 00 0a 00 21 00 00
++ *   IR-confirmed: ff fc 15 0a 00 00 00 00 00 0a 00 21 00 00
++ * The stock firmware reports a *manual* feed's completion as cmd=0x15 (IR
++ * food-present), so both cmds share one handler and one payload layout.
++ *
++ * Note: this hardware has NO load cell. "weight" is the commanded/echoed feed
++ * amount in MCU units (portions * 10), not a measured dispense.
++ */
++struct mcu_feed_result {
++	int weight;         /* LE16 payload[5..6], MCU units (portions*10)        */
++	int portions;       /* weight / 10 (one_feed_weight = 10)                 */
++	int feed_type;      /* payload[7] >> 4 (firmware completion-type nibble)  */
++	int slot;           /* payload[7] & 0x0E (mem_id / schedule slot index)   */
++	int audio_index;    /* payload[9] (echoed sound-clip index, 0 = silent)   */
++	int food_confirmed; /* 1 if cmd==0x15 (hopper IR beam saw food fall)      */
 +};
 +
 +/* ------------------------------------------------------------------ */
@@ -2543,8 +2769,8 @@ index 00000000..dbf4afcc
 +/* Decode a cmd=0x02 schedule-slot read response into mcu_slot. */
 +int mcu_decode_slot(const struct mcu_frame *f, struct mcu_slot *out);
 +
-+/* Decode a cmd=0x07/0x15 feed-result frame; returns dispensed weight via *weight. */
-+int mcu_decode_feed_result(const struct mcu_frame *f, int *weight);
++/* Decode a cmd=0x07/0x15 feed-complete frame into *out. Returns 0 on success. */
++int mcu_decode_feed_result(const struct mcu_frame *f, struct mcu_feed_result *out);
 +
 +/* Decode a cmd=0x0D firmware version string; null-terminates into out[]. */
 +int mcu_decode_version(const struct mcu_frame *f, char *out, size_t out_sz);
