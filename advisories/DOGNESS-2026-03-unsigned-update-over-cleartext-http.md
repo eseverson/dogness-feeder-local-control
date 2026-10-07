@@ -73,7 +73,7 @@ On success the script hands the tarball to the application over a FIFO, which ru
 send_fifo /tmp/my_fifo 1000 $upgrade_type $download_dir/${sys_system_file}
 ```
 
-`upgrade.sh` untars it and writes the members straight to flash with `flashcp` — `uImage` to the kernel partition, `sys.img` to the rootfs partition. A `check_tar_flag()` helper compares version strings from the archive against the running build; it is a downgrade/ordering check, not an authenticity one. Failure of the MD5 comparison leads to `sleep 120; reboot`, so a hostile server that gets the digest wrong merely puts the feeder into a reboot loop.
+`upgrade.sh` untars it and writes the members straight to flash with `flashcp`, by partition number: `uImage` to `/dev/mtd1` (kernel), `sys.img` to `/dev/mtd2` (rootfs) and, if the archive contains it, `uboot-v200.bin` to `/dev/mtd0` — **the bootloader**. An unsigned archive from a cleartext HTTP fetch can therefore replace every stage of the boot chain, not just the kernel and root filesystem. A `check_tar_flag()` helper compares version strings from the archive against the running build; it is a downgrade/ordering check, not an authenticity one. Failure of the MD5 comparison leads to `sleep 120; reboot`, so a hostile server that gets the digest wrong merely puts the feeder into a reboot loop.
 
 ### The unchecked script
 

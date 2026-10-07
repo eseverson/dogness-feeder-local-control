@@ -32,7 +32,7 @@ Evidence is the content of those files as read from the unit's own flash image. 
 
 `/mnt/config/get_params.cgi` is a flat list of JavaScript assignments. The `.cgi` extension is misleading and worth clearing up first: on this build nothing serves it over HTTP — there is no web server binary in the rootfs at all — and the file is simply the platform's configuration format, read and written in-process by `IPServer`. The name and the field layout are inherited from the Foscam IP-camera CGI API, where `get_params.cgi` genuinely was an HTTP endpoint; see [Who actually wrote the firmware](README.md#two-components-that-are-somebody-elses-again). What is reported here is the storage, not a web endpoint.
 
-Among roughly two hundred settings:
+Among its 104 settings:
 
 ```
 var user1_name=…   var user1_pwd=…   var user1_pri=…
@@ -45,7 +45,7 @@ var wifi_key1=…  var wifi_key2=…  var wifi_key3=…  var wifi_key4=…
 var alarm_http_url=…
 ```
 
-with SMTP and FTP upload credentials further down the same file. Every one of them is the literal secret. There is no hashing of the account passwords even though they are only ever compared, never replayed — `libcommon.so`'s `checkLoginUserAndPas` and `jiake::UserManagerment::checkUser` compare against these cleartext values directly.
+with SMTP and FTP upload credentials further down the same file. Every one of them is the literal secret. There is no hashing of the account passwords even though they are only ever compared, never replayed. The two authentication routines in the firmware are `checkLoginUserAndPas`, exported by `libcommon.so`, and `jiake::UserManagerment::checkUser`, exported by `libjiake_sdk.so`; neither was decompiled, so how they perform the comparison is not claimed here. What is established is that the stored side of it is the literal secret.
 
 `/mnt/config/login.cgi` holds the current session's pair on its own:
 

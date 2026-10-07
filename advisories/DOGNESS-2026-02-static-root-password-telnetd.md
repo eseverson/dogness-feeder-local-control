@@ -13,7 +13,9 @@
 
 `/etc/profile` starts a BusyBox `telnetd` on port 23 on every boot, unconditionally, with no setting that disables it and nothing in the product's documentation or app that mentions it exists. It authenticates against a `root` password stored as a traditional DES-crypt hash in `/etc/shadow` inside the read-only squashfs rootfs. The password is **`059AnkJ`**.
 
-That password is not Dogness's: it is generic across a large family of HiSilicon OEM camera firmware built on this platform, and it is already published in gists and teardown writeups. Every unit running this build shares it, nothing about it derives from the unit, and an owner cannot change it — `/etc/shadow` lives in a read-only filesystem, so any edit reverts at the next power cycle.
+That password is not Dogness's, and this is not a new discovery about it: the identical credential has already been assigned CVEs on two sibling pet feeders built on the same platform, and the exact `/etc/shadow` line is published. What is reported here is that this product ships it too. See [Prior art](#prior-art) before scoring or citing this entry.
+
+Every unit running this build shares the password, nothing about it derives from the unit, and an owner cannot change it — `/etc/shadow` lives in a read-only filesystem, so any edit reverts at the next power cycle.
 
 The result is a permanent root shell, reachable from anywhere on the network, behind a password that is public.
 
@@ -24,6 +26,22 @@ The result is a permanent root shell, reachable from anywhere on the network, be
 | Dogness F01WH / `L8-SI` pet feeder | `PRODUCT_MODE=A06_3.81.4`, system `3.81.4.7` | `telnetd`, TCP 23, always on | `FCb/N1tGGXtP6` (in `/etc/shadow`) | DES crypt, salt `FC` | `059AnkJ` |
 
 The same credential appears in numerous unrelated HiSilicon OEM camera firmwares, which is why it is published here rather than withheld. The seven other pet-feeder board profiles compiled into these binaries ([README](README.md#who-the-vendor-is-and-who-actually-wrote-the-firmware)) share the platform that carries this defect, so it is the finding in this set most likely to apply to them — untested.
+
+## Prior art
+
+This is the weakest claim to novelty in the set, and the honest framing matters more than the finding.
+
+| Reference | Product | What it covers |
+| --- | --- | --- |
+| [CVE-2021-37555](https://www.cve.org/CVERecord?id=CVE-2021-37555) | Trixie TX9 Automatic Food Dispenser v3.2.57 | Root shell over telnet on port 23 using **the default root password `059AnkJ`** — the same string, named in the CVE description |
+| [CVE-2019-16734](https://www.cve.org/CVERecord?id=CVE-2019-16734) | Petwant PF-103 firmware 4.3.2.50, Petalk AI 3.2.2.30 | Default credentials on the telnet server allowing remote root command execution; research by [ISE](https://blog.securityevaluators.com/remotely-exploiting-iot-pet-feeders-21013562aea3) |
+| [HiSilicon IP camera root passwords](https://gist.github.com/gabonator/74cdd6ab4f733ff047356198c781f27d) | numerous OEM cameras | The credential circulating publicly, including the byte-identical shadow line `root:FCb/N1tGGXtP6:10957:0:99999:7:::` documented against Fredi and HeimVision cameras |
+
+**`PETWANT_PETS_V200_BOARD` is one of the board profiles compiled into this firmware's own binaries** (see the [set README](README.md#the-platform-vendor)). CVE-2019-16734 is therefore not a coincidental neighbour — it is the same ODM platform, reported six years earlier on a different brand's feeder.
+
+**What is new here:** that the Dogness F01WH / `L8-SI` on firmware `A06_3.81.4` is affected, which no existing record states. Nothing else.
+
+**What is not new:** the credential, the hash, the DES-crypt weakness, the always-on daemon, and the general pattern. Anyone scoring or triaging this should expect it to be treated as another instance of an already-documented platform defect rather than a discovery, and a CNA may reasonably decline a separate identifier on that basis.
 
 ## Description
 
@@ -89,7 +107,7 @@ Note, with the irony acknowledged, that the no-soldering installation path in th
 
 ## Credit
 
-Found by Evan Severson (`@eseverson`). The `059AnkJ` credential itself is not an original finding — it circulates publicly across this OEM platform. What is reported here is that this product ships it on an always-on, undocumented, owner-unchangeable remote shell.
+Found by Evan Severson (`@eseverson`) on this product. The `059AnkJ` credential itself is prior work by others — see [Prior art](#prior-art). What is reported here is only that this product and firmware version ship it on an always-on, undocumented, owner-unchangeable remote shell.
 
 ## References
 
