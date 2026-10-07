@@ -11,7 +11,7 @@
 
 ## Summary
 
-The configuration partition stores every secret the owner ever typed into the product as plain `var name=value` text: all eight web account passwords, the RTSP password, the DDNS password, the PPPoE password, the Wi-Fi keys, and the live login pair in a separate file. The owner's Wi-Fi PSK is additionally in a `wpa_supplicant` config in the same partition, as is a backup copy of it. Nothing is hashed and nothing is encrypted.
+The configuration partition stores every secret the owner ever typed into the product as plain `var name=value` text: all eight stored device account passwords, the RTSP password, the DDNS password, the PPPoE password, the Wi-Fi keys, and the live login pair in a separate file. The owner's Wi-Fi PSK is additionally in a `wpa_supplicant` config in the same partition, as is a backup copy of it. Nothing is hashed and nothing is encrypted.
 
 On its own this is a storage defect that needs a shell first. It does not stay on its own, because [DOGNESS-2026-02](DOGNESS-2026-02-static-root-password-telnetd.md) hands any network-adjacent party that shell behind a published password. The combination turns a pet feeder into a cleartext credential store for the household network, reachable over telnet.
 
@@ -45,7 +45,7 @@ var wifi_key1=…  var wifi_key2=…  var wifi_key3=…  var wifi_key4=…
 var alarm_http_url=…
 ```
 
-with SMTP and FTP upload credentials further down the same file. Every one of them is the literal secret. There is no hashing of the web account passwords even though they are only ever compared, never replayed — `libcommon.so`'s `checkLoginUserAndPas` and `jiake::UserManagerment::checkUser` compare against these cleartext values directly.
+with SMTP and FTP upload credentials further down the same file. Every one of them is the literal secret. There is no hashing of the account passwords even though they are only ever compared, never replayed — `libcommon.so`'s `checkLoginUserAndPas` and `jiake::UserManagerment::checkUser` compare against these cleartext values directly.
 
 `/mnt/config/login.cgi` holds the current session's pair on its own:
 
@@ -93,7 +93,7 @@ Equivalently, from a flash image read off the chip with a CH341A and unpacked, t
 
 ## Impact
 
-Disclosure of the owner's Wi-Fi PSK, giving an attacker who reached only the feeder a way onto the rest of the household network; disclosure of up to eight web account credentials, which owners commonly reuse; disclosure of RTSP, DDNS, SMTP and FTP credentials, the last two often belonging to a real mailbox or server elsewhere.
+Disclosure of the owner's Wi-Fi PSK, giving an attacker who reached only the feeder a way onto the rest of the household network; disclosure of up to eight stored device account credentials, which owners commonly reuse; disclosure of RTSP, DDNS, SMTP and FTP credentials, the last two often belonging to a real mailbox or server elsewhere.
 
 `PR:L` in the vector reflects that a shell or login is needed first. That prerequisite costs nothing on this device, which is why this entry matters more than its score suggests: score it on its own merits, read it alongside DOGNESS-2026-02.
 
@@ -102,7 +102,7 @@ Disclosure of the owner's Wi-Fi PSK, giving an attacker who reached only the fee
 1. **Do not reuse credentials on this device.** Give the app and the camera accounts passwords used nowhere else, and assume the Wi-Fi PSK it holds is compromised.
 2. **Put the feeder on a segregated SSID with its own PSK**, so the key it stores in cleartext is not the key to your main network.
 3. **Erase the configuration partition before the device leaves your hands.** From a root shell, `flash_eraseall -j /dev/mtd4` clears `/mnt/config`. Verify afterwards, and note it will re-provision from scratch.
-4. **Replace the firmware.** The OpenIPC build in this repository keeps Wi-Fi configuration in the image you build, and `catd` has no web accounts, no DDNS client and no SMTP client to store credentials for. The Wi-Fi PSK is still a PSK in a config file — that is `wpa_supplicant` everywhere — so item 2 remains good advice either way.
+4. **Replace the firmware.** The OpenIPC build in this repository keeps Wi-Fi configuration in the image you build, and `catd` has no account store, no DDNS client and no SMTP client to store credentials for. The Wi-Fi PSK is still a PSK in a config file — that is `wpa_supplicant` everywhere — so item 2 remains good advice either way.
 
 ## Credit
 
