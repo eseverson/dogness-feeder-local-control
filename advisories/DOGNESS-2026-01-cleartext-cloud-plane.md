@@ -78,9 +78,7 @@ curl -F "cmd=uploadpic" -F "devid=%s" -F "uploadkey=Let*Me_Upload" -F "userfile=
 **What was observed, and what that implies.** In the 2025-06-08 capture the only MQTT activity is a single unanswered `SYN` to `119.28.64.224:1883` — the hardcoded fallback, which the code reaches only after all three hostnames fail to resolve. No DNS query for any `alxs*` name appears in the capture, and nothing answered. The working cloud paths in that same window were the `server.php` HTTP API above and TUTK P2P (UDP 10001 to Tencent-hosted masters; the `alxs*` names resolve to one of those same addresses today). So:
 
 - The hardcoded fleet credential and the absence of TLS are **facts about shipped firmware**, verifiable from any copy of it, and are reported as such.
-- Whether a broker is still serving on 1883, and whether it would accept that credential, is **not established**. The one observation available suggests the Alexa MQTT backend was unreachable from this device at that time.
-
-An earlier draft of this advisory treated the MQTT channel as the live control plane and cited DNS resolution as evidence that it was. That was wrong: resolution is not reachability, and the capture points the other way. The correction is recorded here rather than quietly removed.
+- Whether a broker is still serving on 1883, and whether it would accept that credential, is **not established**. The `alxs*` names resolving today proves only that the names resolve; the one observation available suggests the Alexa MQTT backend was unreachable from this device at the time of the capture.
 
 ## Severity, stated honestly
 

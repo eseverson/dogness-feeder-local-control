@@ -78,12 +78,12 @@ All four findings rest on static analysis of a flash image read off a unit the r
 
 All work was done against a **single feeder owned by the researcher**, on the researcher's own network. No device belonging to anyone else was touched.
 
-**No vendor infrastructure was tested.** No connection was made to the cloud API, to the MQTT brokers, or to the update server. Hostnames were resolved by DNS only, which establishes that names still resolve and **nothing more** — not that anything is listening, and not that a credential would be accepted. Where a finding's real-world impact depends on server-side behavior, the advisory says so in its own severity section instead of assuming the worst. DOGNESS-2026-01 in particular records a correction: an earlier draft read DNS resolution as evidence that the Alexa MQTT backend was live, and the one capture available points the other way.
+**No vendor infrastructure was tested.** No connection was made to the cloud API, to the MQTT brokers, or to the update server. Hostnames were resolved by DNS only, which establishes that names still resolve and **nothing more** — not that anything is listening, and not that a credential would be accepted. Where a finding's real-world impact depends on server-side behavior, the advisory says so in its own severity section instead of assuming the worst.
 
 Evidence is of three kinds, and each advisory says which it is using:
 
 - **Static analysis** of the 8 MiB flash image dumped from the unit with a CH341A (`d2.bin`, MD5 `503c695f1555245fa8562106c95fb257`): the squashfs rootfs, the squashfs UI partition, and the JFFS2 config partition, plus the vendor binaries in them.
-- **One live network capture** of the unit on the researcher's LAN, 2025-06-08. It is the only direct evidence of what the device actually talks to, and it is what corrected DOGNESS-2026-01: the working cloud channel in that window was plain HTTP to an AWS-hosted endpoint on port 10000, plus TUTK P2P over UDP, while the MQTT connection attempt went unanswered. No device UID from that capture appears anywhere in this set.
+- **One live network capture** of the unit on the researcher's LAN, 2025-06-08. It is the only direct evidence of what the device actually talks to: the working cloud channels in that window were plain HTTP to an AWS-hosted endpoint on TCP 10000 and ThroughTek P2P over UDP, while the MQTT connection attempt went unanswered. No device UID from that capture appears anywhere in this set.
 - **Live execution**, for the telnet login and the MCU protocol work, performed before the unit was reflashed.
 
 The feeder now runs OpenIPC, so nothing here can be re-tested live. Every claim is either recorded in the project's working notes or re-derivable from the retained flash image.
