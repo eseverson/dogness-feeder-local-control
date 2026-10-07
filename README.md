@@ -192,6 +192,7 @@ patches/
   u-boot/                   our U-Boot patches (BY25Q256, baud, ergonomics)
   kernel/                   BY25Q256 SPI-NOR id (also bundled in firmware/0005)
 scripts/                    build.py / flash.py / mcu_tool.sh + helpers
+advisories/                 security advisories for the ORIGINAL vendor firmware
 images/                     annotated board photo
 firmware/                   submodule → openipc/firmware @ b581a5ad (pinned base)
 u-boot-hi3516cv200/         submodule → OpenIPC/u-boot-hi3516cv200 @ 77f79d9 (pinned base)
@@ -253,6 +254,14 @@ Full procedure, every flashing path, and recovery are in
 > rewrite it with the CH341A — the same write as a clean install. A bad kernel or
 > rootfs is recovered from U-Boot over UART; a bad U-Boot, with the clip. Keep a
 > known-good image and the clip on hand.
+
+***
+
+## Security & redaction
+
+Patch `0007-overlay-system-config-REDACTED.patch` ships with the WiFi PSK, root password, and authorized SSH key stripped out, and no device UID or TUTK identifier appears anywhere in this repository. Set your own credentials before building — see [Reproduce](#reproduce).
+
+The **stock firmware** has four reported defects of its own, written up as a separate advisory set in [`advisories/`](advisories/): a fleet-wide hardcoded MQTT credential on a cleartext cloud control plane, an always-on telnet daemon with a static root password, an unsigned firmware update fetched over plain HTTP at every boot, and plaintext storage of every credential the owner enters. None of them apply to the OpenIPC + `catd` build this repository produces — it has no vendor cloud stack, no telnet daemon, and no auto-update client. Start at [`advisories/README.md`](advisories/README.md).
 
 ***
 
