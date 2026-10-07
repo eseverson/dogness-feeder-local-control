@@ -30,10 +30,6 @@ The platform is built to be rebranded and re-targeted. `ShellCommon.conf` select
 
 * **P2P is ThroughTek Kalay**: `libIOTCAPIs.so`, `libAVAPIs.so`, `libP2PTunnelAPIs.so` and `libRDTAPIs.so`, with masters at `us-c/d-master-tutk.iotcplatform.com`, the `eu-` equivalents, and `cn-c/d-master-tutk.kalay.net.cn`. In the capture this is the live video path.
 
-### No relationship to the Vatilon camera set
-
-For anyone reading both: this is **not** the same upstream as the [Vatilon](https://github.com/eseverson/vatilon-camera-advisories) [`hi3516cv610`](https://github.com/eseverson/vatilon-camera-advisories) [set](https://github.com/eseverson/vatilon-camera-advisories). That platform is Shenzhen Huatianlong's, carries `htl` build paths, targets hi3516cv610 and FH8852V201, and its headline defect is a `system_wapper` service that does not exist here. Different ODM, different source tree, different SoC generation. The two sets resemble each other because the Chinese whitebox IP-camera industry makes the same mistakes repeatedly, not because they share code.
-
 ## The set
 
 | Advisory                                                                  | Subject                                                                                                                                                                                | CVSS v3.1 | CVE       |
