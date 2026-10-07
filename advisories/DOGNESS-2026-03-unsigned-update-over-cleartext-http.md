@@ -43,7 +43,7 @@ server_addrs="http://${server_temp}/IMG_Server/images/"
 
 So the *server list itself* is fetched over cleartext HTTP and then used to choose where firmware comes from: an attacker who can answer one HTTP request redirects every subsequent one. A hardcoded fallback `http://112.124.112.116/IMG_Server/images/` exists, and `/mnt/config/server_addr.cgi`, on the writable partition, overrides the base URL entirely if present.
 
-Both `h5cn.dognessnetwork.com` and the `alxs*` hosts still resolve as of 2026-10-06.
+`h5cn.dognessnetwork.com` still resolves as of 2026-10-06. Whether it still serves images was not tested; the hardcoded fallback address is tried regardless of whether it does.
 
 ### What verification happens
 
@@ -102,7 +102,7 @@ Downloaded over HTTP, made executable, executed as root. No MD5, no version chec
 $run_dir/upgrade_online_force 112.124.112.116
 ```
 
-An update check against a hardcoded IP, forced, every boot. `IPServer` additionally exports `auto_upgrade_online_thread` and logs `recive COMMAND_TYPE_UPGRADE_ONLINE_AUTO command!`, so the cloud can trigger the same path at will — and [DOGNESS-2026-01](DOGNESS-2026-01-fleet-wide-mqtt-credential.md) is about who can speak to that cloud plane.
+An update check against a hardcoded IP, forced, every boot. `IPServer` additionally exports `auto_upgrade_online_thread` and logs `recive COMMAND_TYPE_UPGRADE_ONLINE_AUTO command!`, so the cloud can trigger the same path at will — and [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md) is about how little it takes to speak to that cloud plane.
 
 For fairness: the **local** upgrade route is authenticated. `/usr/sbin/cgi-bin/upgrade_firmware.cgi` calls `checkLoginUserAndPas` before `setUpgradeFirmware`. The defect is in the unattended online route, which has no comparable gate.
 
@@ -139,4 +139,4 @@ Found by Evan Severson (`@eseverson`).
 ## References
 
 - [`docs/DEVICE_REFERENCE.md` §9 — FIFO command codes, including `1000` (firmware upgrade)](../docs/DEVICE_REFERENCE.md)
-- [DOGNESS-2026-01](DOGNESS-2026-01-fleet-wide-mqtt-credential.md) — who can trigger the auto-update path remotely
+- [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md) — who can trigger the auto-update path remotely
