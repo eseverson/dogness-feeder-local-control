@@ -33,7 +33,7 @@ Separately, the Alexa voice path (`mqtt_alex`) carries a second fleet-wide crede
 | same                               | same                                         | `libhaisi_3518_video.so`     | `GET /<prefix>/server.php?cmd=sync&devid=…&qrcode=…` over HTTP | Static |
 | same                               | same                                         | `mqtt_alex` (MD5 `27366ac444261b4bc2f06436a6825a98`) | cleartext MQTT/1883, fleet credential | Static; **no session observed live** |
 
-Other brands whose board profiles are compiled into the same binaries are listed in the [set README](README.md#who-the-vendor-is). The HTTP endpoint family lives in platform libraries shared across them, so it is likely to carry; the Dogness-specific parts are the hostnames and the path prefix. Untested.
+Other brands whose board profiles are compiled into the same binaries are listed in the [set README](README.md#who-the-vendor-is-and-who-actually-wrote-the-firmware). The HTTP endpoint family lives in platform libraries shared across them, so it is likely to carry; the Dogness-specific parts are the hostnames and the path prefix. Untested.
 
 ## Description
 

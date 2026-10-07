@@ -104,7 +104,7 @@ $run_dir/upgrade_online_force 112.124.112.116
 
 An update check against a hardcoded IP, forced, every boot. `IPServer` additionally exports `auto_upgrade_online_thread` and logs `recive COMMAND_TYPE_UPGRADE_ONLINE_AUTO command!`, so the cloud can trigger the same path at will — and [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md) is about how little it takes to speak to that cloud plane.
 
-For fairness: the **local** upgrade route is authenticated. `/usr/sbin/cgi-bin/upgrade_firmware.cgi` calls `checkLoginUserAndPas` before `setUpgradeFirmware`. The defect is in the unattended online route, which has no comparable gate.
+For fairness: the firmware does know how to authenticate an upgrade request. `/usr/sbin/cgi-bin/upgrade_firmware.cgi` calls `checkLoginUserAndPas` before `setUpgradeFirmware`, and `IPServer`'s own HTTP handler exposes `/cgi-bin/set_upgrade_online.cgi` behind a session-cookie mechanism. Two caveats on that, both pointing the same way. First, no HTTP server in this build executes that ELF CGI — there is no `httpd` of any kind in the rootfs, and `ipcaminit.sh` mounts an empty tmpfs over `/mnt/ui/cgi-bin/` — so it is most likely dead code (see [Not claimed here](README.md#not-claimed-here)). Second, and regardless, the unattended route described above reaches the same `flashcp` with no gate at all. An authenticated path existing elsewhere does not constrain this one.
 
 ## Proof of concept
 

@@ -30,7 +30,9 @@ Evidence is the content of those files as read from the unit's own flash image. 
 
 ### The configuration file
 
-`/mnt/config/get_params.cgi` is a flat list of JavaScript assignments, written by the application and read back by the web UI. Among roughly two hundred settings:
+`/mnt/config/get_params.cgi` is a flat list of JavaScript assignments. The `.cgi` extension is misleading and worth clearing up first: on this build nothing serves it over HTTP — there is no web server binary in the rootfs at all — and the file is simply the platform's configuration format, read and written in-process by `IPServer`. The name and the field layout are inherited from the Foscam IP-camera CGI API, where `get_params.cgi` genuinely was an HTTP endpoint; see [Who actually wrote the firmware](README.md#two-components-that-are-somebody-elses-again). What is reported here is the storage, not a web endpoint.
+
+Among roughly two hundred settings:
 
 ```
 var user1_name=…   var user1_pwd=…   var user1_pri=…
@@ -43,7 +45,7 @@ var wifi_key1=…  var wifi_key2=…  var wifi_key3=…  var wifi_key4=…
 var alarm_http_url=…
 ```
 
-with SMTP and FTP upload credentials further down the same file. Every one of them is the literal secret. There is no hashing of the web account passwords even though they are only ever compared, never replayed — `libcommon.so`'s `checkLoginUserAndPas`, which the CGI programs call, compares against these cleartext values.
+with SMTP and FTP upload credentials further down the same file. Every one of them is the literal secret. There is no hashing of the web account passwords even though they are only ever compared, never replayed — `libcommon.so`'s `checkLoginUserAndPas` and `jiake::UserManagerment::checkUser` compare against these cleartext values directly.
 
 `/mnt/config/login.cgi` holds the current session's pair on its own:
 
@@ -59,7 +61,7 @@ var pri=…
 
 ### The factory DDNS account
 
-`/usr/ipcam/bak/get_status.cgi`, inside the read-only rootfs, is the factory template the device starts from. It ships with a populated DDNS account for `user.jiake.info` — username and password both present as literals, dated 2012 in the template's own timestamp field. Because it is in the read-only image, it is identical in every unit of this build, which makes it a hard-coded vendor credential rather than an owner's secret. The account is not published here; it is third-party infrastructure and whether it is still live was not tested.
+`/usr/ipcam/bak/get_status.cgi`, inside the read-only rootfs, is the factory template the device starts from. It ships with a populated DDNS account for `user.jiake.info` — username and password both present as literals, dated 2012 in the template's own timestamp field. Because it is in the read-only image, it is identical in every unit of this build, which makes it a hard-coded vendor credential rather than an owner's secret. The account is not published here; it is third-party infrastructure. `jiake.info` no longer resolves, so the account most likely leads nowhere now — which lowers the practical weight of this sub-finding without changing what the firmware does, since a shipped cleartext credential for a dead service is still a shipped cleartext credential.
 
 ### Why upgrades do not clear it
 

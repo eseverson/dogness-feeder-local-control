@@ -23,7 +23,7 @@ The result is a permanent root shell, reachable from anywhere on the network, be
 | ---------------------------------- | ------------------------------------------ | -------------------- | -------------------------- | ----------- | --------- |
 | Dogness F01WH / `L8-SI` pet feeder | `PRODUCT_MODE=A06_3.81.4`, system `3.81.4.7` | `telnetd`, TCP 23, always on | `FCb/N1tGGXtP6` (in `/etc/shadow`) | DES crypt, salt `FC` | `059AnkJ` |
 
-The same credential appears in numerous unrelated HiSilicon OEM camera firmwares, which is why it is published here rather than withheld. The seven other pet-feeder board profiles compiled into these binaries ([README](README.md#who-the-vendor-is)) share the platform that carries this defect, so it is the finding in this set most likely to apply to them — untested.
+The same credential appears in numerous unrelated HiSilicon OEM camera firmwares, which is why it is published here rather than withheld. The seven other pet-feeder board profiles compiled into these binaries ([README](README.md#who-the-vendor-is-and-who-actually-wrote-the-firmware)) share the platform that carries this defect, so it is the finding in this set most likely to apply to them — untested.
 
 ## Description
 
