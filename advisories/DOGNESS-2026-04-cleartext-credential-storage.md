@@ -11,7 +11,9 @@
 
 ## Summary
 
-The configuration partition stores every secret the owner ever typed into the product as plain `var name=value` text: all eight stored device account passwords, the RTSP password, the DDNS password, the PPPoE password, the Wi-Fi keys, and the live login pair in a separate file. The owner's Wi-Fi PSK is additionally in a `wpa_supplicant` config in the same partition, as is a backup copy of it. Nothing is hashed and nothing is encrypted.
+The configuration partition stores the device's account password as plain `var name=value` text, unhashed, alongside a second copy of the live login pair in `login.cgi`. The Wi-Fi PSK sits in a `wpa_supplicant` config in the same partition, with a backup copy.
+
+**Read the scope limits before using this entry.** An earlier version of this advisory listed a long inventory of cleartext credentials — eight accounts, RTSP, DDNS, PPPoE, SMTP, FTP, Wi-Fi keys. Checked against the device, almost all of those fields are empty or unchanged factory placeholders, and two of them do not exist at all. What survives is narrow, and its impact is weaker than the entry's own CVSS score suggests. See [What this actually amounts to](#what-this-actually-amounts-to).
 
 On its own this is a storage defect that needs a shell first. It does not stay on its own, because [DOGNESS-2026-02](DOGNESS-2026-02-static-root-password-telnetd.md) hands any network-adjacent party that shell behind a published password. The combination turns a pet feeder into a cleartext credential store for the household network, reachable over telnet.
 
@@ -45,7 +47,20 @@ var wifi_key1=…  var wifi_key2=…  var wifi_key3=…  var wifi_key4=…
 var alarm_http_url=…
 ```
 
-with SMTP and FTP upload credentials further down the same file. Every one of them is the literal secret. There is no hashing of the account passwords even though they are only ever compared, never replayed. The two authentication routines in the firmware are `checkLoginUserAndPas`, exported by `libcommon.so`, and `jiake::UserManagerment::checkUser`, exported by `libjiake_sdk.so`; neither was decompiled, so how they perform the comparison is not claimed here. What is established is that the stored side of it is the literal secret.
+Checked against the live configuration read off this device, that inventory is almost entirely hollow:
+
+| Field | State on the device |
+| --- | --- |
+| `user1_name` | set, **byte-identical to the factory template** — the shipped default account name, not owner input |
+| `user1_pwd` | set, and **differs** from the factory template — genuinely owner- or app-set. The one real credential here |
+| `user2_*` – `user8_*` | **all empty.** Only one account exists |
+| `rtsp_user`, `rtsp_pwd` | **empty.** Never configured; nothing serves RTSP on this build |
+| `ddns_user`, `ddns_pwd` | **empty.** No DDNS client is started anywhere in the boot path |
+| `pppoe_user`, `pppoe_pwd` | set, **byte-identical to the factory template** — placeholders, not owner data |
+| `wifi_key1`–`4` | **empty.** The WEP key fields are unused; the real PSK lives in `wpa_conf` |
+| SMTP / FTP credentials | **do not exist in this file.** Only `ftp_upload_interval`, a number, is present |
+
+So the cleartext inventory is one account password plus the `login.cgi` copy of it. There is no hashing of the account passwords even though they are only ever compared, never replayed. The two authentication routines in the firmware are `checkLoginUserAndPas`, exported by `libcommon.so`, and `jiake::UserManagerment::checkUser`, exported by `libjiake_sdk.so`; neither was decompiled, so how they perform the comparison is not claimed here. What is established is that the stored side of it is the literal secret.
 
 `/mnt/config/login.cgi` holds the current session's pair on its own:
 
@@ -91,11 +106,19 @@ cat /mnt/config/wpa_conf
 
 Equivalently, from a flash image read off the chip with a CH341A and unpacked, the same files are in the JFFS2 partition. That second route is worth noting on its own: a feeder sold secondhand, returned, or thrown away still carries the previous owner's Wi-Fi key in plaintext on a chip anyone can clip onto.
 
-## Impact
+## What this actually amounts to
 
-Disclosure of the owner's Wi-Fi PSK, giving an attacker who reached only the feeder a way onto the rest of the household network; disclosure of up to eight stored device account credentials, which owners commonly reuse; disclosure of RTSP, DDNS, SMTP and FTP credentials, the last two often belonging to a real mailbox or server elsewhere.
+Three things keep this from being the finding the rest of the document implies.
 
-`PR:L` in the vector reflects that a shell or login is needed first. That prerequisite costs nothing on this device, which is why this entry matters more than its score suggests: score it on its own merits, read it alongside DOGNESS-2026-02.
+**The headline impact was circular.** The previous Impact section said an attacker who reached the feeder could recover the Wi-Fi PSK and "pivot to the rest of the household network." Recovering the PSK requires being on that network already, or having the device in your hands. Gaining access to a network you are already on is not an impact.
+
+**Storing a PSK in a `wpa_supplicant` config is normal.** That is how every Linux device on Wi-Fi works. It is not a defect of this product and should not be scored as one.
+
+**The unused fields were never the owner's to leak.** RTSP, DDNS and the WEP key slots are empty; PPPoE holds factory placeholders; SMTP and FTP credentials are not in the file at all. They are inherited Foscam-template fields on a build with no interface to set them.
+
+What is left is genuinely true and genuinely small: one device account password, and the login pair that duplicates it, stored unhashed in a writable flash partition, preserved across firmware updates by `conf_backup()`. The one non-circular consequence is physical: a feeder that is resold, returned or thrown away carries the previous owner's account password and Wi-Fi PSK in plaintext on a flash chip anyone can clip a SOIC-8 onto. That is worth telling an owner. It is not clearly worth a CVE, and it is not specific to this product.
+
+**Recommendation: this entry should be withdrawn from the set** and its reserved identifier released, or demoted to a hardening note in the project README. It is retained here only until that decision is made.
 
 ## Mitigation
 
