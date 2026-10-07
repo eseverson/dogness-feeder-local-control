@@ -93,7 +93,7 @@ If `telnet <feeder-ip>` presents a login prompt, the daemon is running; this bui
 
 ## Impact
 
-Full root on the device, from anywhere the device is reachable, with a password that is public. Concretely that is: the live camera and microphone; the Wi-Fi PSK and every other credential the owner entered, in cleartext ([DOGNESS-2026-04](DOGNESS-2026-04-cleartext-credential-storage.md)); direct control of the feed motor over the MCU UART, bypassing every portion limit and lockout the app enforces; and a persistent foothold on the owner's network, on a device nobody inspects, that cannot be patched.
+Full root on the device, from anywhere the device is reachable, with a password that is public. Concretely that is: the live camera and microphone; direct control of the feed motor over the MCU UART, bypassing every portion limit and lockout the app enforces; and a persistent foothold on the owner's network, on a device nobody inspects, that cannot be patched.
 
 ## Mitigation
 
@@ -113,4 +113,3 @@ Found by Evan Severson (`@eseverson`) on this product. The `059AnkJ` credential 
 
 - [`docs/DEVICE_REFERENCE.md` §1 — network access](../docs/DEVICE_REFERENCE.md)
 - [`docs/INSTALL.md`](../docs/INSTALL.md) — the telnet flashing path
-- [DOGNESS-2026-04](DOGNESS-2026-04-cleartext-credential-storage.md) — what a shell hands you

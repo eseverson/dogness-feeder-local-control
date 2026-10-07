@@ -261,7 +261,7 @@ Full procedure, every flashing path, and recovery are in
 
 Patch `0007-overlay-system-config-REDACTED.patch` ships with the WiFi PSK, root password, and authorized SSH key stripped out, and no device UID or TUTK identifier appears anywhere in this repository. Set your own credentials before building — see [Reproduce](#reproduce).
 
-The **stock firmware** has four reported defects of its own, written up as a separate advisory set in [`advisories/`](advisories/): a cleartext cloud plane authenticated by the device UID alone and carrying fleet-wide hardcoded keys, an always-on telnet daemon with a static root password, an unsigned firmware update fetched over plain HTTP at every boot, and plaintext storage of every credential the owner enters. None of them apply to the OpenIPC + `catd` build this repository produces — it has no vendor cloud stack, no telnet daemon, and no auto-update client. Start at [`advisories/README.md`](advisories/README.md).
+The **stock firmware** has three reported defects of its own, written up as a separate advisory set in [`advisories/`](advisories/): a cleartext cloud plane authenticated by the device UID alone and carrying fleet-wide hardcoded keys, an always-on telnet daemon with a static root password, and an unsigned firmware update fetched over plain HTTP at every boot. None of them apply to the OpenIPC + `catd` build this repository produces — it has no vendor cloud stack, no telnet daemon, and no auto-update client. Start at [`advisories/README.md`](advisories/README.md).
 
 ***
 

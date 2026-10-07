@@ -1,6 +1,6 @@
 # Dogness `L8-SI` / F01WH pet-feeder camera — advisory set
 
-Three defects, and one entry proposed for withdrawal, in the **original (vendor) firmware** of the Dogness pet-feeder camera this project replaces. The device is a camera with a food-dispensing motor attached, so the consequences are not only the usual ones: a defect that lets a stranger actuate the feeder is a defect that lets a stranger empty a pet's hopper, or keep dispensing into a bowl nobody is watching.
+Three defects in the **original (vendor) firmware** of the Dogness pet-feeder camera this project replaces. The device is a camera with a food-dispensing motor attached, so the consequences are not only the usual ones: a defect that lets a stranger actuate the feeder is a defect that lets a stranger empty a pet's hopper, or keep dispensing into a bowl nobody is watching.
 
 **Published 2026-10-06.** CVE assignment is being requested from MITRE as CNA of last resort. Identifiers appear in the table below as they are issued.
 
@@ -39,7 +39,6 @@ One of those leads is already on the record. `PETWANT_PETS_V200_BOARD` appears i
 | [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md)               | Cloud plane is plain HTTP authenticated by the device UID alone; snapshot upload gated by a fleet-wide hardcoded key; Alexa MQTT channel carries a second fleet credential with no TLS | **7.4**   | requested |
 | [DOGNESS-2026-02](DOGNESS-2026-02-static-root-password-telnetd.md)        | `telnetd` started unconditionally at boot; static root password in a read-only filesystem                                                                                              | **9.8**   | requested |
 | [DOGNESS-2026-03](DOGNESS-2026-03-unsigned-update-over-cleartext-http.md) | Firmware and a root-executed helper script fetched over cleartext HTTP with no signature; runs automatically at every boot                                                             | **8.1**   | requested |
-| [DOGNESS-2026-04](DOGNESS-2026-04-cleartext-credential-storage.md)        | The device account password stored unhashed in the config partition — **narrow, and proposed for withdrawal**; see the entry                                                            | —         | withdrawn? |
 
 ## If you own one of these feeders
 
