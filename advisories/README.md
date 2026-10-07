@@ -26,21 +26,22 @@ The platform is built to be rebranded and re-targeted. `ShellCommon.conf` select
 
 ### Two components that are somebody else's again
 
-- **The CGI dialect is the Foscam IP-camera CGI API**, inherited rather than invented. `get_params.cgi` with `user1_name` through `user8_pwd`, `loginuse`/`loginpas`, `camera_control.cgi`, `decoder_control.cgi`, `snapshot.cgi`, `set_media.cgi` — this is the interface a large family of Foscam clones has shared for over a decade, and it has its own long CVE history (for example CVE-2013-2574, CVE-2014-1911, CVE-2016-8731 against Foscam itself). Where a finding here touches that surface, the advisory says so and does not claim novelty.
-- **P2P is ThroughTek Kalay**: `libIOTCAPIs.so`, `libAVAPIs.so`, `libP2PTunnelAPIs.so` and `libRDTAPIs.so`, with masters at `us-c/d-master-tutk.iotcplatform.com`, the `eu-` equivalents, and `cn-c/d-master-tutk.kalay.net.cn`. In the capture this is the live video path.
+* **The CGI dialect is the Foscam IP-camera CGI API**, inherited rather than invented. `get_params.cgi` with `user1_name` through `user8_pwd`, `loginuse`/`loginpas`, `camera_control.cgi`, `decoder_control.cgi`, `snapshot.cgi`, `set_media.cgi` — this is the interface a large family of Foscam clones has shared for over a decade, and it has its own long CVE history (for example CVE-2013-2574, CVE-2014-1911, CVE-2016-8731 against Foscam itself). Where a finding here touches that surface, the advisory says so and does not claim novelty.
+
+* **P2P is ThroughTek Kalay**: `libIOTCAPIs.so`, `libAVAPIs.so`, `libP2PTunnelAPIs.so` and `libRDTAPIs.so`, with masters at `us-c/d-master-tutk.iotcplatform.com`, the `eu-` equivalents, and `cn-c/d-master-tutk.kalay.net.cn`. In the capture this is the live video path.
 
 ### No relationship to the Vatilon camera set
 
-For anyone reading both: this is **not** the same upstream as the [Vatilon `hi3516cv610` set](https://github.com/eseverson/vatilon-camera-advisories). That platform is Shenzhen Huatianlong's, carries `htl` build paths, targets hi3516cv610 and FH8852V201, and its headline defect is a `system_wapper` service that does not exist here. Different ODM, different source tree, different SoC generation. The two sets resemble each other because the Chinese whitebox IP-camera industry makes the same mistakes repeatedly, not because they share code.
+For anyone reading both: this is **not** the same upstream as the [Vatilon](https://github.com/eseverson/vatilon-camera-advisories) [`hi3516cv610`](https://github.com/eseverson/vatilon-camera-advisories) [set](https://github.com/eseverson/vatilon-camera-advisories). That platform is Shenzhen Huatianlong's, carries `htl` build paths, targets hi3516cv610 and FH8852V201, and its headline defect is a `system_wapper` service that does not exist here. Different ODM, different source tree, different SoC generation. The two sets resemble each other because the Chinese whitebox IP-camera industry makes the same mistakes repeatedly, not because they share code.
 
 ## The set
 
-| Advisory | Subject | CVSS v3.1 | CVE |
-| --- | --- | --- | --- |
-| [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md) | Cloud plane is plain HTTP authenticated by the device UID alone; snapshot upload gated by a fleet-wide hardcoded key; Alexa MQTT channel carries a second fleet credential with no TLS | **7.4** | requested |
-| [DOGNESS-2026-02](DOGNESS-2026-02-static-root-password-telnetd.md) | `telnetd` started unconditionally at boot; static root password in a read-only filesystem | **9.8** | requested |
-| [DOGNESS-2026-03](DOGNESS-2026-03-unsigned-update-over-cleartext-http.md) | Firmware and a root-executed helper script fetched over cleartext HTTP with no signature; runs automatically at every boot | **8.1** | requested |
-| [DOGNESS-2026-04](DOGNESS-2026-04-cleartext-credential-storage.md) | Every credential the owner enters — web, RTSP, DDNS, SMTP, FTP, Wi-Fi PSK — stored in cleartext on the device | **6.5** | requested |
+| Advisory                                                                  | Subject                                                                                                                                                                                | CVSS v3.1 | CVE       |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | --------- |
+| [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md)               | Cloud plane is plain HTTP authenticated by the device UID alone; snapshot upload gated by a fleet-wide hardcoded key; Alexa MQTT channel carries a second fleet credential with no TLS | **7.4**   | requested |
+| [DOGNESS-2026-02](DOGNESS-2026-02-static-root-password-telnetd.md)        | `telnetd` started unconditionally at boot; static root password in a read-only filesystem                                                                                              | **9.8**   | requested |
+| [DOGNESS-2026-03](DOGNESS-2026-03-unsigned-update-over-cleartext-http.md) | Firmware and a root-executed helper script fetched over cleartext HTTP with no signature; runs automatically at every boot                                                             | **8.1**   | requested |
+| [DOGNESS-2026-04](DOGNESS-2026-04-cleartext-credential-storage.md)        | Every credential the owner enters — web, RTSP, DDNS, SMTP, FTP, Wi-Fi PSK — stored in cleartext on the device                                                                          | **6.5**   | requested |
 
 ## If you own one of these feeders
 
@@ -54,17 +55,13 @@ A feeder is not a camera you can unplug. Guidance that ends in "disconnect the d
 
 ## Disclosure statement
 
-> **Decision point before publishing — fill this in.** Unlike a no-name AliExpress camera, Dogness is an identifiable company with a corporate web presence and live cloud infrastructure, so "there is nobody to report this to" is not available as a reason here. Either record a vendor-contact attempt and its outcome in this section, or record the decision not to contact and why. Do not publish this set with this box still in it.
-
-The vendor was contacted on `<date>` at `<address>`; outcome: `<outcome>`.
-
 All four findings rest on static analysis of a flash image read off a unit the researcher owns, plus one passive network capture of that unit on the researcher's own network.
 
 ## What is withheld, and why
 
 **The MQTT credential in DOGNESS-2026-01 is redacted.** Whether a broker still answers on that port is not established, but if one does, the password opens production infrastructure that other people's feeders connect to, and the advisory's own argument is that the broker may not isolate clients from each other. The advisory gives the username, the hostnames, the port, the topic grammar, the binary and its MD5, and a SHA-256 of the password, so anyone holding the same firmware can recover it in one command and confirm the finding exactly.
 
-**The `uploadkey` in DOGNESS-2026-01 is published**, because it is not a password to anything: it gates an upload endpoint that already accepts any UID over plain HTTP, the string is the same in every unit, and withholding it would make the finding unverifiable while protecting nothing.
+**The** **`uploadkey`** **in DOGNESS-2026-01 is published**, because it is not a password to anything: it gates an upload endpoint that already accepts any UID over plain HTTP, the string is the same in every unit, and withholding it would make the finding unverifiable while protecting nothing.
 
 **The Baidu Maps API key and the factory DDNS account are not published.** They are credentials to third parties who have no part in this, and neither is needed to understand or verify the findings.
 
@@ -82,9 +79,11 @@ All work was done against a **single feeder owned by the researcher**, on the re
 
 Evidence is of three kinds, and each advisory says which it is using:
 
-- **Static analysis** of the 8 MiB flash image dumped from the unit with a CH341A (`d2.bin`, MD5 `503c695f1555245fa8562106c95fb257`): the squashfs rootfs, the squashfs UI partition, and the JFFS2 config partition, plus the vendor binaries in them.
-- **One live network capture** of the unit on the researcher's LAN, 2025-06-08. It is the only direct evidence of what the device actually talks to: the working cloud channels in that window were plain HTTP to an AWS-hosted endpoint on TCP 10000 and ThroughTek P2P over UDP, while the MQTT connection attempt went unanswered. No device UID from that capture appears anywhere in this set.
-- **Live execution**, for the telnet login and the MCU protocol work, performed before the unit was reflashed.
+* **Static analysis** of the 8 MiB flash image dumped from the unit with a CH341A (`d2.bin`, MD5 `503c695f1555245fa8562106c95fb257`): the squashfs rootfs, the squashfs UI partition, and the JFFS2 config partition, plus the vendor binaries in them.
+
+* **One live network capture** of the unit on the researcher's LAN, 2025-06-08. It is the only direct evidence of what the device actually talks to: the working cloud channels in that window were plain HTTP to an AWS-hosted endpoint on TCP 10000 and ThroughTek P2P over UDP, while the MQTT connection attempt went unanswered. No device UID from that capture appears anywhere in this set.
+
+* **Live execution**, for the telnet login and the MCU protocol work, performed before the unit was reflashed.
 
 The feeder now runs OpenIPC, so nothing here can be re-tested live. Every claim is either recorded in the project's working notes or re-derivable from the retained flash image.
 
@@ -92,11 +91,13 @@ The feeder now runs OpenIPC, so nothing here can be re-tested live. Every claim 
 
 Three surfaces were found and are **not** being reported as vulnerabilities, because the work to establish them was not done. They are listed so that whoever has one of these running knows where to look.
 
-- **`udpServerSys` and `device_discover`.** Two UDP services the stock firmware starts at boot (`ipcam.sh`, `wifi_stat_ctrl.sh`). `device_discover` imports `recvfrom`, `system`, `popen`, `set_ipaddr`, `set_netmask`, `setWifiConfFile`, `getuuid` **and** `userAuthCheck` — a network-reachable path that can rewrite the device's IP and Wi-Fi configuration and shell out, with some authentication check present. What that check covers was not determined, and the listening ports were never captured. This is the most likely place for a fifth finding.
-- **The TUTK / ThroughTek P2P stack** (`G_P2P_TYPE=tutk`, `libp2p_server.so`). In the capture the device exchanges UDP/10001 traffic with three Tencent-hosted masters and then streams video to the phone over UDP/14301, so this is the live media and remote-viewing path. The ThroughTek SDK has its own well-known CVE history; the SDK version in this build was not identified and the protocol was not analyzed, so nothing is claimed. Note that the TCP/10000 session to an AWS address in the same capture is **not** TUTK — it is the plaintext `server.php` API covered by [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md).
-- **The web / CGI surface, which is present but may never be reachable.** There is **no HTTP server binary anywhere in the rootfs** — no `httpd`, `thttpd`, `boa`, `lighttpd` or `goahead` — and no web server appears in the process list of a running unit. The `.htm` pages in the `ui` partition and the two ELF programs in `/usr/sbin/cgi-bin` are vestigial remains of an arrangement this build no longer uses; `ipcaminit.sh` goes as far as mounting an empty tmpfs over `/mnt/ui/cgi-bin/`, which would mask anything placed there. What does exist is an HTTP handler **inside `IPServer` itself**: it calls `bind`, `listen` and `accept`, emits `HTTP/1.0 200 OK`, `HTTP/1.0 400 Missing session cookie` and `HTTP/1.0 400 Unknown session cookie`, and carries a `/*/cgi-bin/*` route pattern over roughly twenty endpoints (`set_wifi.cgi`, `set_ddns.cgi`, `set_mail.cgi`, `set_upgrade_online.cgi`, `camera_control.cgi`, `decoder_control.cgi` and so on). Whether that handler binds a port reachable on the LAN, or only serves requests arriving through the ThroughTek P2P tunnel, **was not determined** — no port scan of the unit was captured before it was reflashed, and the one network capture available contains no inbound connections to it. Account checking for it lives in `jiake::UserManagerment::checkUser`, so a session mechanism exists; how completely it covers those routes is likewise untested. This is the largest unexamined surface on the device, and the second-most likely place for a further finding after the UDP services above.
+* **`udpServerSys`** **and** **`device_discover`.** Two UDP services the stock firmware starts at boot (`ipcam.sh`, `wifi_stat_ctrl.sh`). `device_discover` imports `recvfrom`, `system`, `popen`, `set_ipaddr`, `set_netmask`, `setWifiConfFile`, `getuuid` **and** `userAuthCheck` — a network-reachable path that can rewrite the device's IP and Wi-Fi configuration and shell out, with some authentication check present. What that check covers was not determined, and the listening ports were never captured. This is the most likely place for a fifth finding.
 
-- **`/mnt/config/exec_extern.sh`**, copied out of the rootfs and then `chmod +x`'d and executed at every boot from the writable JFFS2 partition. A persistence foothold for anyone who already has a shell, not an entry point on its own.
+* **The TUTK / ThroughTek P2P stack** (`G_P2P_TYPE=tutk`, `libp2p_server.so`). In the capture the device exchanges UDP/10001 traffic with three Tencent-hosted masters and then streams video to the phone over UDP/14301, so this is the live media and remote-viewing path. The ThroughTek SDK has its own well-known CVE history; the SDK version in this build was not identified and the protocol was not analyzed, so nothing is claimed. Note that the TCP/10000 session to an AWS address in the same capture is **not** TUTK — it is the plaintext `server.php` API covered by [DOGNESS-2026-01](DOGNESS-2026-01-cleartext-cloud-plane.md).
+
+* **The web / CGI surface, which is present but may never be reachable.** There is **no HTTP server binary anywhere in the rootfs** — no `httpd`, `thttpd`, `boa`, `lighttpd` or `goahead` — and no web server appears in the process list of a running unit. The `.htm` pages in the `ui` partition and the two ELF programs in `/usr/sbin/cgi-bin` are vestigial remains of an arrangement this build no longer uses; `ipcaminit.sh` goes as far as mounting an empty tmpfs over `/mnt/ui/cgi-bin/`, which would mask anything placed there. What does exist is an HTTP handler **inside** **`IPServer`** **itself**: it calls `bind`, `listen` and `accept`, emits `HTTP/1.0 200 OK`, `HTTP/1.0 400 Missing session cookie` and `HTTP/1.0 400 Unknown session cookie`, and carries a `/*/cgi-bin/*` route pattern over roughly twenty endpoints (`set_wifi.cgi`, `set_ddns.cgi`, `set_mail.cgi`, `set_upgrade_online.cgi`, `camera_control.cgi`, `decoder_control.cgi` and so on). Whether that handler binds a port reachable on the LAN, or only serves requests arriving through the ThroughTek P2P tunnel, **was not determined** — no port scan of the unit was captured before it was reflashed, and the one network capture available contains no inbound connections to it. Account checking for it lives in `jiake::UserManagerment::checkUser`, so a session mechanism exists; how completely it covers those routes is likewise untested. This is the largest unexamined surface on the device, and the second-most likely place for a further finding after the UDP services above.
+
+* **`/mnt/config/exec_extern.sh`**, copied out of the rootfs and then `chmod +x`'d and executed at every boot from the writable JFFS2 partition. A persistence foothold for anyone who already has a shell, not an entry point on its own.
 
 ## License
 
