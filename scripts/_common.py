@@ -20,12 +20,12 @@ from typing import Optional
 
 # ── Paths ────────────────────────────────────────────────────────────────
 
-# scripts/openipc/_common.py → ../../.. is the openipc/ root
+# scripts/_common.py → .. is the repo root
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 FIRMWARE_DIR = REPO_ROOT / "firmware"
 UBOOT_TREE = REPO_ROOT / "u-boot-hi3516cv200"
-PATCHES_DIR = OPENIPC_DIR / "patches"
+PATCHES_DIR = REPO_ROOT / "patches"
 
 
 # ── Shell helpers ────────────────────────────────────────────────────────
