@@ -245,7 +245,7 @@ new file mode 100644
 index 00000000..e655ab74
 --- /dev/null
 +++ b/general/overlay/etc/majestic.yaml
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,78 @@
 +system:
 +  webPort: 80
 +  httpsPort: 443
@@ -291,9 +291,14 @@ index 00000000..e655ab74
 +  codec: opus
 +  outputEnabled: true
 +  outputVolume: 30
++  # Speaker amp enable (GPIO6_3; the stock firmware's mute bit at 0x201A0020).
++  # Majestic raises it while back-channel audio plays.
++  speakerPin: 51
 +rtsp:
 +  enabled: true
 +  port: 554
++  # ONVIF audio back-channel: HA's go2rtc sends talk-back audio here (PCMU/8000).
++  backchannel: true
 +nightMode:
 +  colorToGray: true
 +  irCutPin1: 37
