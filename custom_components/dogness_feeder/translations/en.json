@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Majestic login for the feeder. Talk-back needs `rtsp.backchannel: true` in the feeder's /etc/majestic.yaml.",
+        "data": {
+          "host": "Host",
+          "username": "Username",
+          "password": "Password",
+          "device_id": "catd device ID"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the feeder.",
+          "device_id": "The `device_id` from /etc/catd.conf; identifies this feeder if you have more than one."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  }
+}

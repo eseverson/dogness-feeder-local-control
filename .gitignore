@@ -8,3 +8,8 @@ output/
 *.swp
 *~
 __pycache__/
+
+# python
+.venv/
+.pytest_cache/
+uv.lock

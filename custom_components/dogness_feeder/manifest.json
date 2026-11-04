@@ -1,0 +1,12 @@
+{
+  "domain": "dogness_feeder",
+  "name": "Dogness Feeder Camera",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["camera"],
+  "documentation": "https://code.stuntkitty.net/me/dogness-feeder-local-control",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}

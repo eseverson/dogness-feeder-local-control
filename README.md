@@ -34,6 +34,10 @@ and Home Assistant auto-discovers a **Cat Feeder** device with:
 
 * **Video** (RTSP via Majestic) and **snapshot** / **audio** stream URLs
 
+A small custom integration adds a **Cat Feeder Camera** with live video and
+**two-way audio** (talk to the cat from the HA camera view) — see
+[`docs/HOME_ASSISTANT_CAMERA.md`](docs/HOME_ASSISTANT_CAMERA.md).
+
 Everything runs on-device and on your LAN.
 
 ***
@@ -187,6 +191,10 @@ docs/
   MCU_PROTOCOL.md           STC15 UART protocol (packets, responses)
   BY25Q256_UPGRADE.md       8→32 MB SPI-NOR swap: u-boot/kernel/rootfs fixes + flashing
   INSTALL.md                flashing on a real feeder + recovery
+  HOME_ASSISTANT_CAMERA.md  HA camera + two-way audio (Majestic RTSP back-channel)
+custom_components/
+  dogness_feeder/           HA integration: camera entity with two-way audio
+tests/                      pytest-homeassistant tests for the integration
 patches/
   firmware/                 our changes to the OpenIPC firmware tree (topical, 0001–0007)
   u-boot/                   our U-Boot patches (BY25Q256, baud, ergonomics)

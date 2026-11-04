@@ -1,0 +1,23 @@
+[project]
+name = "dogness-feeder-ha"
+version = "0.1.0"
+description = "Home Assistant camera with two-way audio for the OpenIPC-flashed Dogness feeder"
+requires-python = ">=3.14.2"
+
+[dependency-groups]
+test = [
+    "pytest-homeassistant==2026.11.0b6",
+    "PyTurboJPEG==1.8.3",
+]
+
+[tool.uv]
+# The harness is published per HA release; 2026.11.0 final has no build of its own yet.
+override-dependencies = ["homeassistant==2026.11.0"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Let Home Assistant install its httpx alias before respx is imported.
+addopts = "-p no:respx"
+pythonpath = ["."]
+testpaths = ["tests"]
