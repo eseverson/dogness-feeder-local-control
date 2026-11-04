@@ -202,7 +202,7 @@ patches/
 scripts/                    build.py / flash.py / mcu_tool.sh + helpers
 advisories/                 security advisories for the ORIGINAL vendor firmware
 images/                     annotated board photo
-firmware/                   submodule → openipc/firmware @ b581a5ad (pinned base)
+firmware/                   submodule → openipc/firmware @ d66ec8ca (pinned base)
 u-boot-hi3516cv200/         submodule → OpenIPC/u-boot-hi3516cv200 @ 77f79d9 (pinned base)
 ```
 

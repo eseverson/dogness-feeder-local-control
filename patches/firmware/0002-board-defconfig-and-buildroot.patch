@@ -1,21 +1,18 @@
 diff --git a/.gitignore b/.gitignore
-index 945e094f..a763dc42 100644
+index 5893c79f..905c46d9 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -1,4 +1,5 @@
- buildroot-*/
- output/
- buildroot-*
--.DS_Store
-\ No newline at end of file
-+.DS_Store
+@@ -19,3 +19,4 @@ CLAUDE.local.md
+ # accidental .pyc widened a docs pull request to the full 99-board matrix.
+ __pycache__/
+ *.pyc
 +output*
 diff --git a/Makefile b/Makefile
-index bb73e607..7551b83f 100644
+index b2cd3714..5d3c67ac 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -25,14 +25,14 @@ endif
- all: build repack timer
+@@ -43,14 +43,14 @@ endif
+ all: repack-final timer
  
  build: defconfig
 -	@$(BR_MAKE) all -j$(shell nproc)
@@ -32,7 +29,7 @@ index bb73e607..7551b83f 100644
  	@grep -s '^BR2_GLOBAL_PATCH_DIR=' $(CONFIG) >> $(BR_CONF) || true
  	@$(BR_MAKE) BR2_DEFCONFIG=$(BR_CONF) defconfig
  
-@@ -81,7 +81,7 @@ ifeq ($(BR2_TOOLCHAIN_EXTERNAL),y)
+@@ -139,7 +139,7 @@ ifeq ($(BR2_TOOLCHAIN_EXTERNAL),y)
  	@$(MAKE) -f $(PWD)/general/toolchain.mk BR_CONF=$(BR_CONF) CONFIG=$(PWD)/$(CONFIG)
  	@$(BR_MAKE) BR2_DEFCONFIG=$(BR_CONF) defconfig
  endif
@@ -40,9 +37,9 @@ index bb73e607..7551b83f 100644
 +	@$(BR_MAKE) sdk -j$(or $(JOBS),$(shell nproc))
  	@$(call BUNDLE_SDK)
  
- repack:
+ toolchain-asan: defconfig
 diff --git a/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config b/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config
-index 124c922b..debded5c 100644
+index dadf47ba..e41b9987 100644
 --- a/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config
 +++ b/br-ext-chip-hisilicon/board/hi3516cv200/hi3518ev200.generic.config
 @@ -761,7 +761,7 @@ CONFIG_CFG80211=m
@@ -54,7 +51,7 @@ index 124c922b..debded5c 100644
  # CONFIG_LIB80211 is not set
  CONFIG_MAC80211=m
  CONFIG_MAC80211_HAS_RC=y
-@@ -1938,7 +1938,7 @@ CONFIG_STAGING=y
+@@ -1803,7 +1803,7 @@ CONFIG_STAGING=y
  # CONFIG_COMEDI is not set
  # CONFIG_RTLLIB is not set
  # CONFIG_R8712U is not set
@@ -64,7 +61,7 @@ index 124c922b..debded5c 100644
  # CONFIG_VT6656 is not set
  
 diff --git a/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig b/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig
-index 6c24fc42..5bb12229 100644
+index 9bb2cec4..03fa7780 100644
 --- a/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig
 +++ b/br-ext-chip-hisilicon/configs/hi3518ev200_lite_defconfig
 @@ -25,8 +25,8 @@ BR2_PACKAGE_BUSYBOX_CONFIG="$(BR2_EXTERNAL)/package/busybox/busybox.config"
@@ -92,15 +89,15 @@ index 6c24fc42..5bb12229 100644
  # OpenIPC
  BR2_OPENIPC_SOC_VENDOR="hisilicon"
  BR2_OPENIPC_SOC_MODEL="hi3518ev200"
-@@ -44,6 +51,7 @@ BR2_OPENIPC_FLASH_SIZE="8"
- 
+@@ -45,6 +52,7 @@ BR2_OPENIPC_FLASH_SIZE="8"
  # Packages
  BR2_PACKAGE_DROPBEAR_OPENIPC=y
+ BR2_PACKAGE_HISILICON_OPENSDK=y
 +BR2_PACKAGE_GESFTPSERVER=y
  BR2_PACKAGE_HISILICON_OSDRV_HI3516CV200=y
  BR2_PACKAGE_IPCTOOL=y
- BR2_PACKAGE_JSONFILTER=y
-@@ -55,13 +63,19 @@ BR2_PACKAGE_LIBCURL_OPENIPC_CURL=y
+ BR2_PACKAGE_LIBCURL_OPENIPC=y
+@@ -55,15 +63,21 @@ BR2_PACKAGE_LIBCURL_OPENIPC_CURL=y
  BR2_PACKAGE_LIBEVENT_OPENIPC=y
  BR2_PACKAGE_LIBOGG_OPENIPC=y
  BR2_PACKAGE_LINUX_FIRMWARE_OPENIPC=y
@@ -119,6 +116,8 @@ index 6c24fc42..5bb12229 100644
  BR2_PACKAGE_OPUS_OPENIPC=y
  BR2_PACKAGE_VTUND_OPENIPC=y
  BR2_PACKAGE_YAML_CLI=y
+ BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_GENERAL_PATH)/scripts/post-image-split.sh"
+ BR2_OPENIPC_NOR_FIXED_PACKAGE=y
 +BR2_PACKAGE_MOSQUITTO=y
 +BR2_PACKAGE_CATD=y
 +# BR2_PACKAGE_GO2RTC=y
@@ -206,12 +205,12 @@ index 00000000..30d4b675
 +BR2_TARGET_TZ_ZONELIST="northamerica"
 +BR2_TARGET_LOCALTIME="America/Los_Angeles"
 diff --git a/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig b/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig
-index c4b15c70..b178d4d7 100644
+index 6e3d09d8..b8483331 100644
 --- a/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig
 +++ b/br-ext-chip-hisilicon/configs/hi3518ev200_ultimate_defconfig
-@@ -42,17 +42,25 @@ BR2_TARGET_ROOTFS_UBI_USE_CUSTOM_CONFIG=y
- BR2_TARGET_ROOTFS_UBI_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL)/scripts/ubifs/ubinize.cfg"
- BR2_TARGET_ROOTFS_UBIFS_LEBSIZE=0x1f000
+@@ -37,18 +37,26 @@ BR2_TARGET_ROOTFS_CPIO=y
+ BR2_TARGET_ROOTFS_SQUASHFS=y
+ BR2_TARGET_ROOTFS_SQUASHFS4_XZ=y
  
 +# Timezone — compile only the North America source file (contains
 +# America/Los_Angeles and ~30 other NA zones, ~50KB total). LOCALTIME
@@ -232,22 +231,22 @@ index c4b15c70..b178d4d7 100644
  # Packages
  BR2_PACKAGE_DIVINUS=y
  BR2_PACKAGE_DROPBEAR_OPENIPC=y
+ BR2_PACKAGE_HISILICON_OPENSDK=y
 +BR2_PACKAGE_GESFTPSERVER=y
  BR2_PACKAGE_HISILICON_OSDRV_HI3516CV200=y
  BR2_PACKAGE_IPCTOOL=y
- BR2_PACKAGE_JSONFILTER=y
-@@ -79,3 +87,5 @@ BR2_PACKAGE_UACME_OPENIPC=y
- BR2_PACKAGE_VTUND_OPENIPC=y
- BR2_PACKAGE_YAML_CLI=y
+ BR2_PACKAGE_LAME_OPENIPC=y
+@@ -75,3 +83,5 @@ BR2_PACKAGE_YAML_CLI=y
  BR2_PACKAGE_ZEROTIER_ONE=y
+ BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_GENERAL_PATH)/scripts/post-image-split.sh"
+ BR2_OPENIPC_NOR_FIXED_PACKAGE=y
 +BR2_PACKAGE_CATD=y
 +# BR2_PACKAGE_GO2RTC=y
-\ No newline at end of file
 diff --git a/general/external.mk b/general/external.mk
-index ff116940..e79c1721 100644
+index 78bb334b..21d434b2 100644
 --- a/general/external.mk
 +++ b/general/external.mk
-@@ -4,7 +4,7 @@ export OPENIPC_SOC_FAMILY := $(call qstrip,$(BR2_OPENIPC_SOC_FAMILY))
+@@ -5,7 +5,7 @@ export OPENIPC_SOC_FAMILY := $(call qstrip,$(BR2_OPENIPC_SOC_FAMILY))
  export OPENIPC_SNS_MODEL := $(call qstrip,$(BR2_OPENIPC_SNS_MODEL))
  export OPENIPC_VARIANT := $(call qstrip,$(BR2_OPENIPC_VARIANT))
  export OPENIPC_MAJESTIC := $(call qstrip,$(BR2_OPENIPC_MAJESTIC))
@@ -268,3 +267,18 @@ index 00000000..f4c83744
 +/etc/init.d/S70vendor
 +/etc/majestic.yaml
 +/etc/wireguard.conf
+diff --git a/general/scripts/rootfs_script.sh b/general/scripts/rootfs_script.sh
+index d5c89ee6..25d8878d 100755
+--- a/general/scripts/rootfs_script.sh
++++ b/general/scripts/rootfs_script.sh
+@@ -22,7 +22,9 @@ date +TIME_STAMP=%s >> ${FILE}
+ # setting is saved. The package stopped installing one, but an output directory
+ # built before that still holds it, and Buildroot does not reinstall a package
+ # whose recipe changed, so it is removed here on every build.
+-rm -f ${TARGET_DIR}/etc/majestic.yaml
++# A board overlay that ships its own (sensor profile, pins) keeps it.
++[ -f "${BR2_EXTERNAL_GENERAL_PATH}/overlay/etc/majestic.yaml" ] ||
++	rm -f ${TARGET_DIR}/etc/majestic.yaml
+ 
+ CONF="USES_GLIBC=y|OSDRV_T30=y|OSDRV_V85X=y|LIBV4L=y|MAVLINK_ROUTER=y|RUBYFPV=y|ONYXFPV=y|WIFIBROADCAST=y|WIFIBROADCAST_NG=y|AUDIO_PROCESSING_OPENIPC=y"
+ if ! grep -qP ${CONF} ${BR2_CONFIG}; then

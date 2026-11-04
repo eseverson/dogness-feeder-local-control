@@ -1,15 +1,15 @@
 diff --git a/general/package/Config.in b/general/package/Config.in
-index 61d0f53b..6420420f 100644
+index c1f2e11c..c011492a 100644
 --- a/general/package/Config.in
 +++ b/general/package/Config.in
-@@ -8,6 +8,7 @@ source "$BR2_EXTERNAL_GENERAL_PATH/package/aura-httpd/Config.in"
- source "$BR2_EXTERNAL_GENERAL_PATH/package/aws-producer/Config.in"
- source "$BR2_EXTERNAL_GENERAL_PATH/package/aws-webrtc/Config.in"
+@@ -9,6 +9,7 @@ source "$BR2_EXTERNAL_GENERAL_PATH/package/atbm60xx/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/atbm606x-openipc/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/aura-httpd/Config.in"
  source "$BR2_EXTERNAL_GENERAL_PATH/package/baresip-openipc/Config.in"
 +source "$BR2_EXTERNAL_GENERAL_PATH/package/catd/Config.in"
  source "$BR2_EXTERNAL_GENERAL_PATH/package/comgt/Config.in"
+ source "$BR2_EXTERNAL_GENERAL_PATH/package/cpu-models/Config.in"
  source "$BR2_EXTERNAL_GENERAL_PATH/package/divinus/Config.in"
- source "$BR2_EXTERNAL_GENERAL_PATH/package/dropbear-openipc/Config.in"
 diff --git a/general/package/catd/Config.in b/general/package/catd/Config.in
 new file mode 100644
 index 00000000..bb949cc5

@@ -1,12 +1,11 @@
 diff --git a/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon b/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon
-index ec85b194..87be30c2 100755
+index f38dee02..eea42610 100755
 --- a/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon
 +++ b/general/package/hisilicon-osdrv-hi3516cv200/files/script/load_hisilicon
-@@ -89,7 +89,21 @@ insert_isp() {
+@@ -102,11 +102,25 @@ insert_isp() {
  
  insert_sns() {
          case $SENSOR in
--        9m034 | jxf23 | ov2718 | ov9732 | ov9750 | ov9752 | jxh62 | sc1235 | sc2235 | ov9712 | ov2710 | gc2023)
 +        jxh62)
 +                devmem 0x200f0040 32 0x2 # I2C0_SCL
 +                devmem 0x200f0044 32 0x2 # I2C0_SDA
@@ -21,7 +20,12 @@ index ec85b194..87be30c2 100755
 +
 +                devmem 0x2003002c 32 0xc4003 # Sensor unreset, clk 24MHz + clk reverse, VI 99MHz
 +                ;;
-+        9m034 | jxf23 | ov2718 | ov9732 | ov9750 | ov9752 | sc1235 | sc2235 | ov9712 | ov2710 | gc2023)
+         # jxh65 is the parallel JX-H65: the vendor load3518e muxes it in the
+         # same ov9712|ov9732|h65 arm, at 24MHz. With no arm here the script
+         # died in report_error before hi_mipi.ko, so majestic could not open
+         # /dev/hi_mipi and got no video (#2675).
+-        9m034 | jxf23 | ov2718 | ov9732 | ov9750 | ov9752 | jxh62 | jxh65 | sc1235 | sc2235 | ov9712 | gc2023)
++        9m034 | jxf23 | ov2718 | ov9732 | ov9750 | ov9752 | jxh65 | sc1235 | sc2235 | ov9712 | gc2023)
                  devmem 0x200f0040 32 0x2 # I2C0_SCL
                  devmem 0x200f0044 32 0x2 # I2C0_SDA
  

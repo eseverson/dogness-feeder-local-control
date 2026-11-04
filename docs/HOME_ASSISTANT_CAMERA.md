@@ -24,7 +24,7 @@ rtsp:
 
 To check a running feeder, send a DESCRIBE with `Require: www.onvif.org/ver20/backchannel`. The SDP should end with `m=audio 0 RTP/AVP 0`, `a=rtpmap:0 PCMU/8000`, `a=sendonly`, `a=control:audio-backchannel`.
 
-Majestic builds that new need mbedtls 3.6. The pinned OpenIPC tree ships mbedtls 2.25, so a rebuild needs the submodule bump tracked in #6.
+Majestic builds that new link mbedtls 3.6, which the OpenIPC tree has carried since 2026-10-01. The `firmware` submodule is pinned past that (#6), so a build from this repo pulls a matching Majestic.
 
 ## Install
 
