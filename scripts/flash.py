@@ -61,11 +61,22 @@ def resolve_path(arg: Path | None, default_name: str) -> Path:
     return p
 
 
+# busybox and musl's loader, copied to tmpfs and run as `ld busybox <applet>`.
+# A plain copy of /usr/sbin/flashcp is not enough: it is busybox, dynamically
+# linked, and exec still maps /lib/ld-musl-arm.so.1 from the rootfs squashfs.
+# Once mtd3 is erased that only works while those pages happen to be cached;
+# with the images filling tmpfs on a 32 MB board they were not (2026-11-04),
+# flashcp never started, mtd3 stayed blank and `reboot` failed the same way.
+FLASH_KIT = "/tmp/flashkit/ld /tmp/flashkit/busybox"
+
+
 def stage_flash_tools(target: SSHTarget) -> None:
-    """Copy flashcp/flash_eraseall into /tmp so they survive a rootfs erase."""
+    """Copy busybox + the musl loader into /tmp so flashing survives a rootfs erase."""
     target.ssh(
-        "cp /usr/sbin/flashcp /tmp/flashcp && "
-        "cp /usr/sbin/flash_eraseall /tmp/flash_eraseall"
+        "mkdir -p /tmp/flashkit && "
+        "cp -L /bin/busybox /tmp/flashkit/busybox && "
+        "cp -L /lib/ld-musl-arm.so.1 /tmp/flashkit/ld && "
+        f"{FLASH_KIT} true"
     )
 
 
@@ -111,7 +122,7 @@ def cmd_uboot(args: argparse.Namespace) -> int:
     target.transfer_with_md5(img, "/tmp/u-boot.bin", "uboot")
 
     info("flashing /dev/mtd0 (DO NOT POWER OFF)")
-    target.ssh("/tmp/flash_eraseall /dev/mtd0 && /tmp/flashcp -v /tmp/u-boot.bin /dev/mtd0")
+    target.ssh(f"{FLASH_KIT} flash_eraseall /dev/mtd0 && {FLASH_KIT} flashcp -v /tmp/u-boot.bin /dev/mtd0")
 
     print()
     info("u-boot flashed. Running system unaffected — old u-boot stays in")
@@ -166,22 +177,25 @@ def _flash_main_partitions(
         target.transfer_with_md5(src, remote, label)
 
     # Build flash sequence. Order: kernel first, rootfs last.
-    # Once we erase mtd3 (rootfs), dropbear can no longer page in libs from
-    # squashfs and SSH dies. So we run the whole sequence detached under
-    # nohup; it runs to reboot regardless of the SSH client.
+    # Once we erase mtd3 (rootfs), nothing on it can be exec'd any more:
+    # dropbear, the shell, `reboot`. So the whole sequence -- its shell
+    # included -- runs from FLASH_KIT, detached under nohup, and ends in
+    # `reboot -f`, which skips init and its rootfs-resident scripts.
     flashes_ordered = sorted(flashes, key=lambda f: 0 if f[0] == "kernel" else 1)
     cmds = []
     for label, _, idx, remote in flashes_ordered:
-        cmds.append(f"/tmp/flash_eraseall /dev/mtd{idx}")
-        cmds.append(f"/tmp/flashcp -v {remote} /dev/mtd{idx}")
-    cmds.append("reboot")
+        cmds.append(f"{FLASH_KIT} flash_eraseall /dev/mtd{idx}")
+        cmds.append(f"{FLASH_KIT} flashcp -v {remote} /dev/mtd{idx}")
+    cmds.append(f"{FLASH_KIT} reboot -f")
 
     sequence = " && ".join(cmds[:-1]) + "; " + cmds[-1]
     info("flashing (DO NOT POWER OFF) — detached, will reboot when done")
     target.ssh(
-        f"nohup sh -c {sequence!r} >/tmp/flash.log 2>&1 </dev/null &",
+        f"nohup {FLASH_KIT} sh -c {sequence!r} >/tmp/flash.log 2>&1 </dev/null &",
     )
     info(f"flash dispatched. Wait ~60s then: ssh {target.user}@{target.host}")
+    info("if it is not back within ~2 min, power-cycle it: a warm reset can stall")
+    info("in the BootROM on this board (see the issue tracker)")
     return 0
 
 
@@ -240,7 +254,7 @@ def cmd_recovery(args: argparse.Namespace) -> int:
     target.transfer_with_md5(img, "/tmp/recovery.img", "recovery")
 
     info("flashing /dev/mtd4 (DO NOT POWER OFF)")
-    target.ssh("/tmp/flash_eraseall /dev/mtd4 && /tmp/flashcp -v /tmp/recovery.img /dev/mtd4")
+    target.ssh(f"{FLASH_KIT} flash_eraseall /dev/mtd4 && {FLASH_KIT} flashcp -v /tmp/recovery.img /dev/mtd4")
 
     print()
     info("recovery flashed. Running system unaffected — no reboot needed.")

@@ -110,7 +110,11 @@ if [ "$TOTAL_KB" -gt "$TMPFS_FREE_KB" ]; then
 fi
 
 # ── Copy flash tools to tmpfs before we erase anything ───────────────────────
-$SSH "cp /usr/sbin/flashcp /tmp/flashcp; cp /usr/sbin/flash_eraseall /tmp/flash_eraseall"
+# busybox AND musl's loader: a copy of /usr/sbin/flashcp alone is busybox,
+# whose exec still maps /lib/ld-musl-arm.so.1 from the squashfs being erased.
+# That left mtd3 blank on 2026-11-04 (flashcp never started, nor did reboot).
+KIT="/tmp/flashkit/ld /tmp/flashkit/busybox"
+$SSH "mkdir -p /tmp/flashkit && cp -L /bin/busybox /tmp/flashkit/busybox && cp -L /lib/ld-musl-arm.so.1 /tmp/flashkit/ld && $KIT true"
 
 # ── Transfer-only function (no flashing yet) ──────────────────────────────────
 transfer_image() {
@@ -145,17 +149,19 @@ transfer_image() {
 transfer_image "rootfs" "$ROOTFS_IMG" /tmp/rootfs.img
 [ -n "$KERNEL_IMG" ] && transfer_image "kernel" "$KERNEL_IMG" /tmp/kernel.img
 
-# Build the flash sequence. Erasing mtd3 (rootfs) kills SSH because dropbear
-# can no longer page in libs from squashfs — so run the whole sequence detached
-# under nohup. It runs to reboot regardless of what the SSH client does.
+# Build the flash sequence. Once mtd3 (rootfs) is erased nothing on it can be
+# exec'd — dropbear, the shell, reboot — so the whole sequence, its shell
+# included, runs from the kit, detached under nohup, and ends in `reboot -f`
+# (no init, whose scripts live on the erased rootfs).
 FLASH_CMDS=""
 if [ -n "$KERNEL_IMG" ]; then
-    FLASH_CMDS="$FLASH_CMDS /tmp/flash_eraseall /dev/mtd2 && /tmp/flashcp -v /tmp/kernel.img /dev/mtd2;"
+    FLASH_CMDS="$FLASH_CMDS $KIT flash_eraseall /dev/mtd2 && $KIT flashcp -v /tmp/kernel.img /dev/mtd2;"
 fi
-FLASH_CMDS="$FLASH_CMDS /tmp/flash_eraseall /dev/mtd3 && /tmp/flashcp -v /tmp/rootfs.img /dev/mtd3;"
+FLASH_CMDS="$FLASH_CMDS $KIT flash_eraseall /dev/mtd3 && $KIT flashcp -v /tmp/rootfs.img /dev/mtd3;"
 
 echo "Flashing (DO NOT POWER OFF) — runs detached, will reboot when done..."
-$SSH "nohup sh -c '$FLASH_CMDS reboot' >/tmp/flash.log 2>&1 </dev/null &"
+$SSH "nohup $KIT sh -c '$FLASH_CMDS $KIT reboot -f' >/tmp/flash.log 2>&1 </dev/null &"
 
 echo "Flash dispatched. Wait ~60s then: ssh $SSH_USER@$DEVICE"
+echo "Not back within ~2 min? Power-cycle it: a warm reset can stall in the BootROM on this board."
 echo "On next boot, log lives at /tmp/flash.log only until tmpfs is rebuilt — already gone after reboot."
