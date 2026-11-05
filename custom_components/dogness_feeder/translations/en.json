@@ -5,18 +5,21 @@
         "description": "Majestic login for the feeder. Talk-back needs `rtsp.backchannel: true` in the feeder's /etc/majestic.yaml.",
         "data": {
           "host": "Host",
+          "host_entity": "Host entity",
           "username": "Username",
           "password": "Password",
           "device_id": "catd device ID"
         },
         "data_description": {
-          "host": "IP address or hostname of the feeder.",
+          "host": "Fixed IP address or hostname of the feeder. Leave empty to follow the host entity.",
+          "host_entity": "A sensor whose state is a URL naming the feeder, such as catd's Stream URL. Used when Host is empty, so a feeder on DHCP keeps working when its address changes.",
           "device_id": "The `device_id` from /etc/catd.conf; identifies this feeder if you have more than one."
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect",
+      "no_host": "Set a host, or a host entity whose state names the feeder",
       "invalid_auth": "Invalid authentication"
     },
     "abort": {

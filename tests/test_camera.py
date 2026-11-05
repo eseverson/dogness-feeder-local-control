@@ -17,7 +17,7 @@ from pytest_homeassistant.test_util.aiohttp import (
 
 from custom_components.dogness_feeder.const import DOMAIN
 
-from .conftest import HOST, SNAPSHOT_URL
+from .conftest import DYN_HOST, DYN_SNAPSHOT_URL, HOST, SNAPSHOT_URL, STREAM_SENSOR
 
 ENTITY_ID = "camera.cat_feeder_camera"
 
@@ -64,6 +64,48 @@ async def test_still_image_uses_basic_auth(
     assert image.content == b"\xff\xd8still"
     _, _, _, headers = aioclient_mock.mock_calls[-1]
     assert headers["Authorization"].startswith("Basic ")
+
+
+async def test_stream_source_follows_the_host_entity(
+    hass: HomeAssistant, dyn_config_entry: MockConfigEntry
+) -> None:
+    hass.states.async_set(STREAM_SENSOR, f"rtsp://{DYN_HOST}:554/stream=0")
+    await _setup(hass, dyn_config_entry)
+    camera = hass.data[DATA_COMPONENT].get_entity(ENTITY_ID)
+
+    assert await camera.stream_source() == (
+        f"rtsp://root:p%40ss%3Aw%2Frd@{DYN_HOST}:554/stream=0"
+    )
+
+    # DHCP hands the feeder a new address; catd republishes the URL.
+    hass.states.async_set(STREAM_SENSOR, "rtsp://192.0.2.30:554/stream=0")
+    assert await camera.stream_source() == (
+        "rtsp://root:p%40ss%3Aw%2Frd@192.0.2.30:554/stream=0"
+    )
+
+
+async def test_no_stream_while_the_host_entity_is_unavailable(
+    hass: HomeAssistant, dyn_config_entry: MockConfigEntry
+) -> None:
+    hass.states.async_set(STREAM_SENSOR, "unavailable")
+    await _setup(hass, dyn_config_entry)
+    camera = hass.data[DATA_COMPONENT].get_entity(ENTITY_ID)
+
+    assert await camera.stream_source() is None
+    assert await camera.async_camera_image() is None
+
+
+async def test_still_image_follows_the_host_entity(
+    hass: HomeAssistant,
+    dyn_config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    hass.states.async_set(STREAM_SENSOR, f"rtsp://{DYN_HOST}:554/stream=0")
+    aioclient_mock.get(DYN_SNAPSHOT_URL, content=b"\xff\xd8dyn")
+    await _setup(hass, dyn_config_entry)
+
+    image = await async_get_image(hass, ENTITY_ID)
+    assert image.content == b"\xff\xd8dyn"
 
 
 async def test_camera_has_its_own_device(

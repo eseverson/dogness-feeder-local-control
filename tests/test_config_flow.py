@@ -13,7 +13,14 @@ from pytest_homeassistant.test_util.aiohttp import (
 
 from custom_components.dogness_feeder.const import DOMAIN
 
-from .conftest import ENTRY_DATA, SNAPSHOT_URL
+from .conftest import (
+    DYN_ENTRY_DATA,
+    DYN_HOST,
+    DYN_SNAPSHOT_URL,
+    ENTRY_DATA,
+    SNAPSHOT_URL,
+    STREAM_SENSOR,
+)
 
 
 async def _start(hass: HomeAssistant):
@@ -38,6 +45,31 @@ async def test_user_flow_creates_entry(
     assert result["title"] == "Cat Feeder"
     assert result["data"] == ENTRY_DATA
     assert result["result"].unique_id == "feeder-1"
+
+
+async def test_user_flow_with_a_host_entity(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    hass.states.async_set(STREAM_SENSOR, f"rtsp://{DYN_HOST}:554/stream=0")
+    aioclient_mock.get(DYN_SNAPSHOT_URL, content=b"\xff\xd8jpeg")
+
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], DYN_ENTRY_DATA
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == DYN_ENTRY_DATA
+
+
+async def test_user_flow_needs_a_host(hass: HomeAssistant) -> None:
+    hass.states.async_set(STREAM_SENSOR, "unavailable")
+
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], DYN_ENTRY_DATA
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "no_host"}
 
 
 async def test_user_flow_invalid_auth_then_recovers(

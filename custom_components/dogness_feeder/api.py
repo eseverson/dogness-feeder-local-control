@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import aiohttp
 
@@ -17,6 +17,13 @@ class MajesticError(Exception):
 
 class MajesticAuthError(MajesticError):
     """Majestic rejected the credentials."""
+
+
+def host_from_url(value: str) -> str | None:
+    """Host in a URL such as catd's rtsp://<ip>:554/stream=0, or a bare host."""
+    if "://" in value:
+        return urlsplit(value).hostname
+    return value.strip() or None
 
 
 def rtsp_url(host: str, username: str, password: str) -> str:

@@ -29,7 +29,7 @@ Majestic builds that new link mbedtls 3.6, which the OpenIPC tree has carried si
 ## Install
 
 1. Copy `custom_components/dogness_feeder/` into your HA config's `custom_components/`, or add this repo to HACS as a custom repository. Restart HA.
-2. **Settings → Devices & services → Add integration → Dogness Feeder Camera.** Enter the feeder's IP, the Majestic login (`root` plus the password you set), and catd's `device_id` (default `feeder-1`).
+2. **Settings → Devices & services → Add integration → Dogness Feeder Camera.** Enter the Majestic login (`root` plus the password you set) and catd's `device_id` (default `feeder-1`). For the address, either fill in **Host** with a fixed IP, or leave it empty and keep **Host entity** at `sensor.cat_feeder_stream_url`: the camera then takes the feeder's address from the stream URL catd publishes over MQTT, every time a stream or snapshot starts, so a new DHCP lease needs no reconfiguring.
 3. Turn on the camera integration's **Two-way audio** preview feature under **Settings → System → Labs**.
 4. Open HA over HTTPS, because browsers only allow microphone access on secure origins. Then open the camera's live view and use the mic button.
 

@@ -9,13 +9,13 @@ from homeassistant.components.camera import (
     CameraEntityCapabilities,
     CameraEntityFeature,
 )
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import FeederConfigEntry
+from . import FeederConfigEntry, resolve_host
 from .api import MajesticError, async_fetch_snapshot, rtsp_url
 from .const import CONF_DEVICE_ID, DOMAIN
 
@@ -44,7 +44,7 @@ class FeederCamera(Camera):
     def __init__(self, entry: FeederConfigEntry) -> None:
         """Initialize from the config entry."""
         super().__init__()
-        self._host: str = entry.data[CONF_HOST]
+        self._data = entry.data
         self._username: str = entry.data[CONF_USERNAME]
         self._password: str = entry.data[CONF_PASSWORD]
         device_id: str = entry.data[CONF_DEVICE_ID]
@@ -58,21 +58,30 @@ class FeederCamera(Camera):
             model="PETS V200",
         )
 
-    async def stream_source(self) -> str:
-        """Return the RTSP URL go2rtc should pull."""
-        return rtsp_url(self._host, self._username, self._password)
+    async def stream_source(self) -> str | None:
+        """Return the RTSP URL go2rtc should pull.
+
+        Resolved on every call: go2rtc asks again whenever a stream starts and
+        re-adds the source when the URL has changed, so a new DHCP address
+        published by catd is picked up without reloading the entry.
+        """
+        if not (host := resolve_host(self.hass, self._data)):
+            return None
+        return rtsp_url(host, self._username, self._password)
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Return a still from Majestic."""
+        if not (host := resolve_host(self.hass, self._data)):
+            return None
         try:
             return await async_fetch_snapshot(
                 async_get_clientsession(self.hass),
-                self._host,
+                host,
                 self._username,
                 self._password,
             )
         except MajesticError as err:
-            _LOGGER.debug("Snapshot from %s failed: %s", self._host, err)
+            _LOGGER.debug("Snapshot from %s failed: %s", host, err)
             return None

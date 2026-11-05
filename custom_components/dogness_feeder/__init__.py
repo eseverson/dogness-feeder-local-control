@@ -7,13 +7,31 @@ declare two-way audio.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_HOST, STATE_UNAVAILABLE, STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant
+
+from .api import host_from_url
+from .const import CONF_HOST_ENTITY
 
 PLATFORMS = [Platform.CAMERA]
 
 type FeederConfigEntry = ConfigEntry
+
+
+def resolve_host(hass: HomeAssistant, data: Mapping[str, Any]) -> str | None:
+    """The fixed host if there is one, else the host the host entity names now."""
+    if host := data.get(CONF_HOST):
+        return host
+    if not (entity_id := data.get(CONF_HOST_ENTITY)):
+        return None
+    state = hass.states.get(entity_id)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return None
+    return host_from_url(state.state)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FeederConfigEntry) -> bool:
