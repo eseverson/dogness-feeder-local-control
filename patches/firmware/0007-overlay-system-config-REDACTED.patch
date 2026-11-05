@@ -222,10 +222,10 @@ index 00000000..8b606e23
 +esac
 diff --git a/general/overlay/etc/majestic.yaml b/general/overlay/etc/majestic.yaml
 new file mode 100644
-index 00000000..736f9724
+index 00000000..42a44397
 --- /dev/null
 +++ b/general/overlay/etc/majestic.yaml
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,80 @@
 +system:
 +  webPort: 80
 +  httpsPort: 443
@@ -270,9 +270,12 @@ index 00000000..736f9724
 +  srate: 8000
 +  codec: opus
 +  outputEnabled: true
-+  outputVolume: 30
-+  # No speakerPin: GPIO 51 is UART2 TX to the feed MCU, and requesting it as a
-+  # GPIO re-muxes that pad away from the UART, cutting catd off from the MCU.
++  # 30 maps to -41 dB at the AO and is inaudible on this speaker.
++  outputVolume: 90
++  # Speaker amplifier enable: GPIO5_1 (pad 0x200f00a4, otherwise the unused
++  # SDIO0 clock), active high, found by ear on the bench. Not 51: that is UART2
++  # to the feed MCU, and requesting it as a GPIO re-muxes the pad off the UART.
++  speakerPin: 41
 +rtsp:
 +  enabled: true
 +  port: 554
