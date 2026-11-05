@@ -5,19 +5,19 @@
 ## How the audio gets to the speaker
 
 ```
-browser mic ──WebRTC/Opus──▶ HA's go2rtc ──RTSP back-channel, PCMU/8000──▶ Majestic ──▶ AO ──▶ speaker amp (GPIO 51)
+browser mic ──WebRTC/Opus──▶ HA's go2rtc ──RTSP back-channel, PCMU/8000──▶ Majestic ──▶ AO ──▶ speaker amp (enable pin: unknown, see below)
 ```
 
 * The camera's `stream_source()` is Majestic's main RTSP stream (`rtsp://<feeder>:554/stream=0`), and the entity declares `CameraEntityCapabilities(two_way_audio=True)`.
 * HA's built-in go2rtc pulls that stream. When Majestic advertises an ONVIF back-channel, go2rtc sets it up and transcodes the browser's Opus mic audio to PCMU/8000 for it.
-* Majestic plays the audio out the codec's AO and raises `audio.speakerPin` (GPIO 51, the stock firmware's mute bit at `0x201A0020`) while it plays.
+* Majestic plays the audio out the codec's AO. On the bench (2026-11-04) the talk-back audio reaches it intact (`audio_jitter` played every frame, AO channel unmuted) but nothing is audible yet: the speaker amplifier's enable pin is still unidentified.
+* **Do not set `audio.speakerPin: 51`.** GPIO 51 is UART2 TX to the feed MCU. Majestic requesting it as a GPIO re-muxes pad `0x200f00cc` away from `UART2_TXD`, and catd can no longer reach the MCU until the pad is set back to 3 or the feeder reboots.
 
-The back-channel needs Majestic newer than 2026-05-24 (`master+025b6f6` from 2026-11-04 was tested) with these settings in `/etc/majestic.yaml`. Both are in the overlay patch [`0007`](../patches/firmware/0007-overlay-system-config-REDACTED.patch):
+The back-channel needs Majestic newer than 2026-05-24 (`master+025b6f6` from 2026-11-04 was tested) with these settings in `/etc/majestic.yaml`. They are in the overlay patch [`0007`](../patches/firmware/0007-overlay-system-config-REDACTED.patch):
 
 ```yaml
 audio:
   outputEnabled: true
-  speakerPin: 51
 rtsp:
   backchannel: true
 ```

@@ -222,10 +222,10 @@ index 00000000..8b606e23
 +esac
 diff --git a/general/overlay/etc/majestic.yaml b/general/overlay/etc/majestic.yaml
 new file mode 100644
-index 00000000..fc63fee3
+index 00000000..736f9724
 --- /dev/null
 +++ b/general/overlay/etc/majestic.yaml
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,77 @@
 +system:
 +  webPort: 80
 +  httpsPort: 443
@@ -271,9 +271,8 @@ index 00000000..fc63fee3
 +  codec: opus
 +  outputEnabled: true
 +  outputVolume: 30
-+  # Speaker amp enable (GPIO6_3; the stock firmware's mute bit at 0x201A0020).
-+  # Majestic raises it while back-channel audio plays.
-+  speakerPin: 51
++  # No speakerPin: GPIO 51 is UART2 TX to the feed MCU, and requesting it as a
++  # GPIO re-muxes that pad away from the UART, cutting catd off from the MCU.
 +rtsp:
 +  enabled: true
 +  port: 554
