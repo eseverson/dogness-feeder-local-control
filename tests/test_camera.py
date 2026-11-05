@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from homeassistant.components.camera import (
     CameraEntityFeature,
+    CameraWebRTCProvider,
+    StreamType,
     async_get_image,
+    async_register_webrtc_provider,
 )
 from homeassistant.components.camera.const import DATA_COMPONENT
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
 from pytest_homeassistant.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -106,6 +110,46 @@ async def test_still_image_follows_the_host_entity(
 
     image = await async_get_image(hass, ENTITY_ID)
     assert image.content == b"\xff\xd8dyn"
+
+
+class _RtspWebRTCProvider(CameraWebRTCProvider):
+    """Stands in for go2rtc: takes any rtsp:// source."""
+
+    @property
+    def domain(self) -> str:
+        return "test"
+
+    @callback
+    def async_is_supported(self, stream_source: str) -> bool:
+        return stream_source.startswith("rtsp://")
+
+    async def async_handle_async_webrtc_offer(
+        self, camera, offer_sdp, session_id, send_message
+    ) -> None:
+        """Not exercised."""
+
+    async def async_on_webrtc_candidate(self, session_id, candidate) -> None:
+        """Not exercised."""
+
+
+async def test_webrtc_once_the_host_entity_has_a_value(
+    hass: HomeAssistant, dyn_config_entry: MockConfigEntry
+) -> None:
+    # After a restart catd's retained URL lands after the camera is added. HA
+    # picks the WebRTC provider from stream_source() when the camera is added,
+    # so without a refresh the camera stayed HLS-only, and two-way audio is
+    # WebRTC-only.
+    await async_setup_component(hass, "camera", {})
+    async_register_webrtc_provider(hass, _RtspWebRTCProvider())
+    hass.states.async_set(STREAM_SENSOR, "unknown")
+    await _setup(hass, dyn_config_entry)
+    camera = hass.data[DATA_COMPONENT].get_entity(ENTITY_ID)
+    assert StreamType.WEB_RTC not in camera.camera_capabilities.frontend_stream_types
+
+    hass.states.async_set(STREAM_SENSOR, f"rtsp://{DYN_HOST}:554/stream=0")
+    await hass.async_block_till_done()
+
+    assert StreamType.WEB_RTC in camera.camera_capabilities.frontend_stream_types
 
 
 async def test_camera_has_its_own_device(

@@ -10,14 +10,15 @@ from homeassistant.components.camera import (
     CameraEntityFeature,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 
 from . import FeederConfigEntry, resolve_host
 from .api import MajesticError, async_fetch_snapshot, rtsp_url
-from .const import CONF_DEVICE_ID, DOMAIN
+from .const import CONF_DEVICE_ID, CONF_HOST_ENTITY, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +58,26 @@ class FeederCamera(Camera):
             manufacturer="Dogness",
             model="PETS V200",
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Follow the host entity."""
+        await super().async_added_to_hass()
+        if entity_id := self._data.get(CONF_HOST_ENTITY):
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [entity_id], self._async_host_entity_changed
+                )
+            )
+
+    @callback
+    def _async_host_entity_changed(self, event: Event[EventStateChangedData]) -> None:
+        """Re-pick the WebRTC provider when the feeder's address changes.
+
+        HA chooses it from stream_source() once, when the camera is added. After
+        a restart catd's retained URL arrives later than that, so the camera
+        would stay HLS-only, and two-way audio needs WebRTC.
+        """
+        self.hass.async_create_task(self.async_refresh_providers())
 
     async def stream_source(self) -> str | None:
         """Return the RTSP URL go2rtc should pull.
