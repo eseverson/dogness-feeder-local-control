@@ -5,21 +5,22 @@
 ## How the audio gets to the speaker
 
 ```
-browser mic ──WebRTC/Opus──▶ HA's go2rtc ──RTSP back-channel, PCMU/8000──▶ Majestic ──▶ AO ──▶ speaker amp (GPIO 41)
+browser mic ──WebRTC/Opus──▶ HA's go2rtc ──RTSP back-channel, PCMU/8000──▶ Majestic ──▶ AO ──▶ speaker amp (GPIO 40 shutdown, GPIO 41 gate)
 ```
 
 * The camera's `stream_source()` is Majestic's main RTSP stream (`rtsp://<feeder>:554/stream=0`), and the entity declares `CameraEntityCapabilities(two_way_audio=True)`.
 * HA's built-in go2rtc pulls that stream. When Majestic advertises an ONVIF back-channel, go2rtc sets it up and transcodes the browser's Opus mic audio to PCMU/8000 for it.
-* Majestic plays the audio out the codec's AO and raises `audio.speakerPin` (GPIO 41, the speaker amplifier enable, active high) while it plays. `audio.outputVolume` has to be high: 30 maps to -41 dB at the AO, which is inaudible; 90 is -1 dB.
+* Majestic plays the audio out the codec's AO and, while it plays, pulls `audio.speakerPin` (GPIO 40, the amp's shutdown, hence `speakerPinInvert: true`) low. `rc.local` holds GPIO 41, the signal gate, high; see the speaker table in `DEVICE_REFERENCE.md`. `audio.outputVolume` has to be high: 30 maps to -41 dB at the AO, which is inaudible; 90 is -1 dB.
 * **Never use `speakerPin: 51`.** GPIO 51 is UART2 TX to the feed MCU. Majestic requesting it as a GPIO re-muxes pad `0x200f00cc` away from `UART2_TXD`, and catd can no longer reach the MCU until the pad is set back to 3 or the feeder reboots.
 
-The back-channel needs Majestic newer than 2026-05-24 (`master+025b6f6` from 2026-11-04 was tested) with these settings in `/etc/majestic.yaml`. They are in the overlay patch [`0007`](../patches/firmware/0007-overlay-system-config-REDACTED.patch):
+The back-channel needs Majestic newer than 2026-05-24 (`master+025b6f6` from 2026-11-04 was tested) with these settings in `/etc/majestic.yaml`, plus GPIO 41 held high from `rc.local`. Both are in the overlay patch [`0007`](../patches/firmware/0007-overlay-system-config-REDACTED.patch):
 
 ```yaml
 audio:
   outputEnabled: true
   outputVolume: 90
-  speakerPin: 41
+  speakerPin: 40
+  speakerPinInvert: true
 rtsp:
   backchannel: true
 ```

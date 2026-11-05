@@ -92,7 +92,8 @@ FLASH_SIZE=32mb ./scripts/build-full-image.sh   # → full-hi3518ev200-ultimate-
 | —     | —   | 52    | UART2 RX from MCU          | Mux pin                                                |
 | —     | —   | —     | RGB LED(s)                 | Output (board-specific, via `wps_led` binary)          |
 | —     | —   | —     | PIR sensor                 | Input (board-specific)                                 |
-| 5     | 1   | 41    | Speaker amplifier enable   | Output, active high (pad `0x200f00a4`, mux 0)          |
+| 5     | 0   | 40    | Speaker amplifier shutdown | Output, low = amp on (pad `0x200f00a0`, mux 0)         |
+| 5     | 1   | 41    | Speaker signal gate        | Output, high = pass (pad `0x200f00a4`, mux 0)          |
 
 GPIO control binary: `/usr/sbin/gpio_setting <group> <pin> <type> <dir> <level>`
 
@@ -113,11 +114,18 @@ Two-pin solenoid with complementary drive via registers at `0x201C000c`:
 | Day (normal) | 0        | 1        | `0x2` then `0x0` after 1s |
 | Night (IR)   | 1        | 0        | `0x1` then `0x0` after 1s |
 
-### Speaker Amplifier Enable
+### Speaker Amplifier
 
-GPIO 41 (`GPIO5_1`) enables the speaker amplifier, active high. Its pad (`0x200f00a4`) is otherwise `SDIO0_CCLK_OUT`, unused on this board. Found by ear on the bench, 2026-11-04: Majestic's AO was playing with nothing audible until GPIO 41 went high.
+Two pins, both on pads that are otherwise SDIO0 (`0x200f00a0` write-protect, `0x200f00a4` clock), unused on this board. Mapped by ear on the bench, 2026-11-04, with a tone playing into the AO:
 
-Majestic drives it with `audio.speakerPin: 41`, raising it only while audio plays. With `audio.outputVolume: 30` the AO sits at -41 dB, which is inaudible on this speaker; 90 (-1 dB) is.
+| GPIO 40 | GPIO 41 | Speaker |
+| ------- | ------- | ------- |
+| 1       | 0       | silent |
+| 0       | 1       | **plays** |
+| 1       | 1       | silent |
+| 0       | 0       | hiss, plus a tick at the WiFi beacon rate (~100 ms) |
+
+So GPIO 40 is the amp shutdown (low = on) and GPIO 41 passes the signal. `rc.local` holds GPIO 41 high; Majestic drives GPIO 40 with `audio.speakerPin: 40` and `audio.speakerPinInvert: true`, pulling it low only while audio plays, so the amp is off (and quiet) the rest of the time. With `audio.outputVolume: 30` the AO sits at -41 dB, inaudible on this speaker; 90 (-1 dB) is.
 
 An earlier version of this section listed `0x201A0020` bit 3 as an audio mute bit. That is `GPIO6_3`, the pad (`0x200f00cc`) that carries UART2 to the feed MCU, so treating it as a speaker control re-muxes the pad off the UART and cuts catd off from the MCU. `0x200f0078` is the pad for `GPIO0_2`, the green status LED.
 

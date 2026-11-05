@@ -222,10 +222,10 @@ index 00000000..8b606e23
 +esac
 diff --git a/general/overlay/etc/majestic.yaml b/general/overlay/etc/majestic.yaml
 new file mode 100644
-index 00000000..42a44397
+index 00000000..71ce837e
 --- /dev/null
 +++ b/general/overlay/etc/majestic.yaml
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,82 @@
 +system:
 +  webPort: 80
 +  httpsPort: 443
@@ -272,10 +272,12 @@ index 00000000..42a44397
 +  outputEnabled: true
 +  # 30 maps to -41 dB at the AO and is inaudible on this speaker.
 +  outputVolume: 90
-+  # Speaker amplifier enable: GPIO5_1 (pad 0x200f00a4, otherwise the unused
-+  # SDIO0 clock), active high, found by ear on the bench. Not 51: that is UART2
-+  # to the feed MCU, and requesting it as a GPIO re-muxes the pad off the UART.
-+  speakerPin: 41
++  # Speaker amplifier shutdown: GPIO5_0 (pad 0x200f00a0, otherwise the unused
++  # SDIO0 write-protect), low = amp on, so inverted. rc.local holds GPIO 41 (the
++  # signal gate) high. Not 51: that is UART2 to the feed MCU, and requesting it
++  # as a GPIO re-muxes the pad off the UART.
++  speakerPin: 40
++  speakerPinInvert: true
 +rtsp:
 +  enabled: true
 +  port: 554
@@ -351,10 +353,10 @@ index 77b95a5d..acf795d5 100644
  		export PS1='\u@\h:\w\# '
  	else
 diff --git a/general/overlay/etc/rc.local b/general/overlay/etc/rc.local
-index 1426ecbb..b27e727e 100755
+index 1426ecbb..96bf0dfa 100755
 --- a/general/overlay/etc/rc.local
 +++ b/general/overlay/etc/rc.local
-@@ -1,14 +1,42 @@
+@@ -1,14 +1,48 @@
  #!/bin/sh
 -#
 -# rc.local
@@ -373,6 +375,12 @@ index 1426ecbb..b27e727e 100755
 +cp /etc/dropbear.keys /root/.ssh/authorized_keys
 +chmod 700 /root/.ssh
 +chmod 600 /root/.ssh/authorized_keys
++
++# Speaker amplifier: GPIO 41 high lets the signal through; GPIO 40 is the amp's
++# shutdown, which Majestic drives (audio.speakerPin: 40, inverted) low only while
++# talk-back plays. GPIO 40 held low while idle leaves a WiFi-rate hiss and tick.
++[ -d /sys/class/gpio/gpio41 ] || echo 41 > /sys/class/gpio/export
++echo high > /sys/class/gpio/gpio41/direction
 +
 +# Run majestic with respawn; re-apply MIPI sensor register tweaks after each
 +# (re)start since the sensor driver re-initializes default registers each time.
