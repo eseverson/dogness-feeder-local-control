@@ -68,3 +68,39 @@ index 00000000..1efb3840
 + 
 + 	/* Catalyst / On Semiconductor -- non-JEDEC */
 + 	{ "cat25c11", CAT25_INFO(16, 8, 16, 1, SPI_NOR_NO_ERASE
+diff --git a/general/package/all-patches/linux/0023-spi-nor-keep-4b-opcode-flash-in-3-byte-mode.patch b/general/package/all-patches/linux/0023-spi-nor-keep-4b-opcode-flash-in-3-byte-mode.patch
+new file mode 100644
+index 00000000..271ef895
+--- /dev/null
++++ b/general/package/all-patches/linux/0023-spi-nor-keep-4b-opcode-flash-in-3-byte-mode.patch
+@@ -0,0 +1,30 @@
++spi-nor: keep 4-byte-opcode flash in 3-byte address mode
++
++A BY25Q256 left in 4-byte mode by U-Boot survives every warm reset, and the
++hi3518ev200 BootROM then cannot read U-Boot back. Exit it at probe.
++
++--- a/drivers/mtd/spi-nor/spi-nor.c	2026-11-04 16:08:41.449213753 -0800
+++++ b/drivers/mtd/spi-nor/spi-nor.c	2026-11-04 16:08:57.893101142 -0800
++@@ -2356,9 +2356,20 @@
++ 		/* enable 4-byte addressing if the device exceeds 16MiB */
++ 		nor->addr_width = 4;
++ 		if (JEDEC_MFR(info) == SNOR_MFR_SPANSION ||
++-		    info->flags & SPI_NOR_4B_OPCODES)
+++		    info->flags & SPI_NOR_4B_OPCODES) {
++ 			spi_nor_set_4byte_opcodes(nor, info);
++-		else
+++			/*
+++			 * The 4-byte opcodes carry their own address width, so the
+++			 * chip can stay in 3-byte mode -- and must: the bootloader
+++			 * may hand it over in 4-byte mode (hifmc100 U-Boot does),
+++			 * no reset resets the flash, and a BootROM reading it with
+++			 * 3-byte addresses after reboot, panic or watchdog never
+++			 * finds U-Boot again. set_4byte() would send these chips the
+++			 * Spansion BRWR, so issue EX4B directly.
+++			 */
+++			if (JEDEC_MFR(info) != SNOR_MFR_SPANSION)
+++				nor->write_reg(nor, SPINOR_OP_EX4B, NULL, 0);
+++		} else
++ 			set_4byte(nor, info, 1);
++ 	} else {
++ 		nor->addr_width = 3;

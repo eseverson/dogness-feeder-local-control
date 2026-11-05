@@ -171,26 +171,47 @@ index 00000000..3ecd3fe9
 +esac
 diff --git a/general/overlay/etc/init.d/S99healthy b/general/overlay/etc/init.d/S99healthy
 new file mode 100755
-index 00000000..5d1339d2
+index 00000000..8b606e23
 --- /dev/null
 +++ b/general/overlay/etc/init.d/S99healthy
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,45 @@
 +#!/bin/sh
-+# Reset U-Boot bootcount to 0 once main has booted far enough to be healthy.
++# Reset U-Boot bootcount to 0 once main is demonstrably healthy.
 +#
 +# U-Boot's boot_with_count env script increments bootcount on every boot and
 +# falls through to bootcmdrec once it exceeds bootlimit. This script is the
-+# "boot succeeded" signal: if we get here, the kernel + rootfs + init came
-+# up successfully, so reset the counter.
++# "boot succeeded" signal, so it has to mean something: within GRACE seconds
++# the SSH server must be up and, on a rootfs that ships it, catd too. If not,
++# reboot, so a broken main counts toward recovery instead of sitting there
++# half-up with nothing to log in to.
 +#
-+# Runs in the background with a small delay so we don't block init and so
-+# the system has a chance to fail (panic, dropbear crash on bad config, etc.)
-+# before we declare victory.
++# Network reachability is deliberately not part of it: a router outage must
++# not push the feeder into recovery.
++
++GRACE=180
++
++healthy() {
++	pidof dropbear >/dev/null || return 1
++	if [ -x /etc/init.d/S85catd ] && ! pidof catd >/dev/null; then
++		return 1
++	fi
++	return 0
++}
 +
 +case "$1" in
 +    start)
 +        (
 +            sleep 30
++            waited=30
++            until healthy; do
++                if [ "$waited" -ge "$GRACE" ]; then
++                    logger -t healthy "dropbear/catd not up after ${GRACE}s; rebooting toward recovery"
++                    reboot
++                    exit 0
++                fi
++                sleep 10
++                waited=$((waited + 10))
++            done
 +            current=$(fw_printenv -n bootcount 2>/dev/null)
 +            if [ "$current" != "0" ]; then
 +                fw_setenv bootcount 0
@@ -199,54 +220,6 @@ index 00000000..5d1339d2
 +        ;;
 +    stop|restart|reload) ;;
 +esac
-diff --git a/general/overlay/etc/init.d/rcS b/general/overlay/etc/init.d/rcS
-index a37dbe24..a4f09b99 100755
---- a/general/overlay/etc/init.d/rcS
-+++ b/general/overlay/etc/init.d/rcS
-@@ -16,6 +16,35 @@ if grep -qw failsafe /proc/cmdline 2>/dev/null && [ -x /usr/sbin/failsafe-rescue
- 	exit 0
- fi
- 
-+# ── Safe-mode check ──────────────────────────────────────────────────────
-+# boot_ok is stored in U-Boot env.  Values:
-+#   1 = last boot completed (normal boot)
-+#   0 = upgrade pending or previous boot failed (safe mode)
-+#   <unset> = fresh device, treat as normal
-+BOOT_OK=$(fw_printenv -n boot_ok 2>/dev/null)
-+
-+if [ "$BOOT_OK" = "0" ]; then
-+	echo "*** SAFE MODE — previous boot did not complete ***"
-+	echo "*** Starting minimal system: modules + network + SSH ***"
-+
-+	# Run only what's needed for remote access
-+	for s in S01syslogd S35modules S36pinmux S38mdev S40network S50dropbear; do
-+		i="/etc/init.d/$s"
-+		[ -f "$i" ] && $i start
-+	done
-+
-+	echo ""
-+	echo "*** SAFE MODE active.  SSH should be available. ***"
-+	echo "***   To commit:  fw_setenv boot_ok 1 && reboot  ***"
-+	echo "***   To reflash: sysupgrade.sh <url>             ***"
-+	exit 0
-+fi
-+
-+# ── Normal boot ──────────────────────────────────────────────────────────
-+# Mark boot as not-yet-complete.  If we crash before the end of init,
-+# the next reboot enters safe mode.
-+fw_setenv boot_ok 0 2>/dev/null
-+
- for i in /etc/init.d/S??*; do
- 	[ ! -f "$i" ] && continue
- 	case "$i" in
-@@ -24,3 +53,7 @@ for i in /etc/init.d/S??*; do
- 			;;
- 	esac
- done
-+
-+# All init scripts succeeded — mark boot as good.
-+fw_setenv boot_ok 1 2>/dev/null
-+echo "Boot complete, boot_ok committed."
 diff --git a/general/overlay/etc/majestic.yaml b/general/overlay/etc/majestic.yaml
 new file mode 100644
 index 00000000..fc63fee3
