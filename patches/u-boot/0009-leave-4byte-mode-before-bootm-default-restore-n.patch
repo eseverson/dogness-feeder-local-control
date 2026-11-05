@@ -1,0 +1,51 @@
+hi3518ev200: leave 4-byte flash mode before bootm; default restore=n.
+
+bootm jumped to the kernel without running the shutdown hooks that `reset`
+runs, so hifmc100 never took the >16MB BY25Q256 back out of 4-byte address
+mode. The SoC reset does not reset the flash, so after any warm reset
+(reboot, panic, watchdog) the BootROM read it with 3-byte addresses, found
+no U-Boot and sat in its serial-download loop. Call do_shutdown() before
+cleanup_before_linux().
+
+board.c resets the whole environment to the defaults whenever
+getenv_yesno("restore") is true, and getenv_yesno() is true for an unset
+variable. The 0008 defaults did not set it, so every boot reloaded them,
+bootcount included, and boot_with_count could never reach recovery. Default
+it to n.
+
+diff --git a/arch/arm/lib/bootm.c b/arch/arm/lib/bootm.c
+index 1a98208..d9268e6 100644
+--- a/arch/arm/lib/bootm.c
++++ b/arch/arm/lib/bootm.c
+@@ -172,6 +172,16 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
+ 	}
+ #endif
+ 
++	/*
++	 * Run the drivers' shutdown hooks, as `reset` does. hifmc100's takes a
++	 * >16MB SPI NOR back out of 4-byte address mode; without it the kernel
++	 * inherits the chip in 4-byte mode, and since the SoC reset does not
++	 * reset the flash, every later warm reset (reboot, panic, watchdog)
++	 * leaves the BootROM reading it with 3-byte addresses and it never
++	 * finds U-Boot again.
++	 */
++	do_shutdown();
++
+ 	cleanup_before_linux ();
+ 
+ 	theKernel (0, machid, bd->bi_boot_params);
+diff --git a/include/configs/hi3518ev200.h b/include/configs/hi3518ev200.h
+index 1a988a9..34639b6 100644
+--- a/include/configs/hi3518ev200.h
++++ b/include/configs/hi3518ev200.h
+@@ -402,6 +402,10 @@
+     "bootcmdrec=setenv setargs setenv bootargs ${bootargsrec}; run setargs; sf probe 0; sf read ${baseaddr} 0xB60000 0x800000; bootm ${baseaddr}\0" \
+     "bootcount=0\0" \
+     "bootlimit=3\0" \
++    /* An unset "restore" reads as yes (getenv_yesno), and then board.c \
++     * resets the whole env to these defaults on every boot, bootcount \
++     * included, so boot_with_count could never reach recovery. */ \
++    "restore=n\0" \
+     "boot_with_count=if test ${bootcount} -gt ${bootlimit}; then echo bootcount=${bootcount}/${bootlimit} - recovery; run bootcmdrec; else setexpr bootcount ${bootcount} + 1; saveenv; echo bootcount=${bootcount}/${bootlimit} - main; run bootcmdmain; fi\0" \
+     "altbootcmd=run bootcmdrec\0" \
+     "bootrecovery=setenv bootcmd 'run bootcmdrec'; saveenv; reset\0" \

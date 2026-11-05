@@ -119,7 +119,7 @@ before erasing `mtd0`.
 
 ## Recovery
 
-You have two independent nets before the device is ever truly stuck, in order of
+You have three independent nets before the device is ever truly stuck, in order of
 effort:
 
 1. **Recovery partition (on-device).** The build ships a fallback initramfs
@@ -130,9 +130,21 @@ effort:
    *regardless of JEDEC ID* — so U-Boot comes up even on a chip it can't fully
    probe, enough to `loady` a fresh kernel / rootfs / U-Boot over the serial
    console. This recovers anything short of a corrupt **or absent** U-Boot — a
-   blank chip has nothing to load, so use net 3 for that. Full sequence in
+   blank chip has nothing to load, so use net 3 or 4 for that. Full sequence in
    [`BY25Q256_UPGRADE.md`](BY25Q256_UPGRADE.md).
-3. **SOIC-8 clip + CH341A (the ultimate net).** If U-Boot is gone or the chip is
+3. **BootROM serial boot (no clip).** When the mask ROM finds no bootable U-Boot it
+   sits in serial-download mode (25 spaces + newline at 115200, every ~10 ms).
+   OpenIPC's [defib](https://github.com/OpenIPC/defib) answers it and runs any
+   U-Boot from RAM: `defib burn -c hi3518ev200 -f u-boot.bin -p /dev/ttyACM0`,
+   then interrupt autoboot and `sf write` a good U-Boot back to offset 0. Verified
+   2026-11-04 with the Pico bridge, which only services its port while DTR is up:
+   defib forces DTR low, so patch `port.dtr = True` in its `transport/serial.py`.
+   A U-Boot started this way can't start a kernel (data abort at entry), so use it
+   only to rewrite flash. If the flash chip is in 4-byte mode (warm reset from an
+   unfixed kernel), reset it first —
+   `mw.l 0x10010024 0x66; mw.l 0x10010038 0; mw.l 0x10010030 0; mw.l 0x10010020 0xff; mw.l 0x1001003c 0x81`,
+   then the same with `0x99` — and `sf probe 0`, or every read is misaddressed.
+4. **SOIC-8 clip + CH341A (the ultimate net).** If U-Boot is gone or the chip is
    blank, rewrite the whole image externally — the same write as a clean install
    (Path A). In-circuit clipping was unreliable on this board, so program the chip
    **off the board** if it won't take in place. No software state survives this,
@@ -142,5 +154,5 @@ effort:
 **Soft-brick reality:** the only writes that can stop the device booting are the
 U-Boot region (`flash.py uboot`, or a botched Path-A write) and a corrupt full
 image. A bad kernel or rootfs is recovered from U-Boot in minutes (net 2); a bad
-U-Boot is recovered with the clip (net 3). Keep a known-good `full-…bin` and the
+U-Boot is recovered over UART (net 3), or with the clip (net 4). Keep a known-good `full-…bin` and the
 clip on hand and the worst case is a re-flash.
